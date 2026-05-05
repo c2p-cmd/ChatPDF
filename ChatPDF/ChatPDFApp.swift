@@ -13,5 +13,6 @@ struct ChatPDFApp: App {
         WindowGroup {
             ContentView()
         }
+        .windowIdealSize(.maximum)
     }
 }

@@ -1,12 +1,11 @@
 import SwiftUI
 
-extension Color {
-    // App color palette (light mode only)
-    static let appPrimary = Color(hex: 0x222222)
-    static let appAccent = Color(hex: 0xFA8112)
-    static let appSubBackground = Color(hex: 0xF5E7C6)
-    static let appBackground = Color(hex: 0xFAF3E1)
-}
+//extension Color {
+//    // App color palette (light mode only)
+//    static let appAccent = Color.accent
+//    static let appSubBackground = Color(hex: 0xF5E7C6)
+//    static let appBackground = Color(hex: 0xFAF3E1)
+//}
 
 extension Color {
     init(hex: UInt32, alpha: Double = 1.0) {

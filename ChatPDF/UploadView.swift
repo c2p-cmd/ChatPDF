@@ -1,7 +1,9 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct UploadView: View {
     let onFileChosen: (URL) -> Void
+    let onError: (Error) -> Void
 
     @State private var isTargeted = false
     @State private var showImporter = false
@@ -12,50 +14,37 @@ struct UploadView: View {
             VStack(spacing: 8) {
                 Image(systemName: "doc.fill")
                     .font(.system(size: 40, weight: .semibold))
-                    .foregroundColor(.appPrimary)
+                    .foregroundStyle(Color.primary)
                 Text("Drag & drop a PDF here")
-                    .foregroundColor(.appPrimary)
+                    .foregroundStyle(Color.primary)
                     .font(.headline)
                 Text("or")
-                    .foregroundColor(.appPrimary.opacity(0.7))
+                    .foregroundStyle(Color.primary.opacity(0.7))
                     .font(.subheadline)
-                Button(action: { 
+                Button {
                     errorText = nil
                     showImporter = true 
-                }) {
+                } label: {
                     Text("Select File")
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(Color.appAccent)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
+                .glassEffect(
+                    .regular.tint(Color.accent.opacity(0.12)),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
+                .buttonStyle(.borderedProminent)
             }
-            .padding(28)
-            .frame(maxWidth: 420)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.appSubBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(borderColor, lineWidth: 2)
-                    )
-            )
-            .onDrop(of: ["public.file-url"], isTargeted: $isTargeted) { providers in
+            .glassEffect(.clear, in: Rectangle())
+            .onDrop(of: [UTType.pdf, UTType.fileURL], isTargeted: $isTargeted) { providers in
                 errorText = nil
-                return handleDrop(providers: providers)
-            }
-
-            if let errorText {
-                Text(errorText)
-                    .foregroundColor(.red)
-                    .font(.footnote)
+                return handleDrop(providers)
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.appBackground)
+        .preferredColorScheme(.light)
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf]) { result in
             switch result {
             case .success(let url):
@@ -64,43 +53,46 @@ struct UploadView: View {
                 } else {
                     errorText = "Please select a .pdf file."
                 }
-            case .failure:
+            case .failure(let err):
+                print(err)
+                onError(err)
                 break
             }
         }
     }
     
     private var borderColor: Color {
-        if errorText != nil {
-            return .red
-        } else if isTargeted {
-            return .appAccent
+        if isTargeted {
+            return .accent
         } else {
             return .clear
         }
     }
 
-    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let item = providers.first else { return false }
-        if item.hasItemConformingToTypeIdentifier("public.file-url") {
-            item.loadItem(forTypeIdentifier: "public.file-url", options: nil) { data, _ in
-                guard let data = data as? Data,
-                      let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                DispatchQueue.main.async {
-                    if url.pathExtension.lowercased() == "pdf" {
-                        errorText = nil
-                        onFileChosen(url)
-                    } else {
-                        errorText = "Only .pdf files are accepted."
-                    }
+        item.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { data, err in
+            if let err {
+                Task { @MainActor in
+                    self.errorText = "Failed to load file."
                 }
+                print(err)
+                return
             }
-            return true
+            guard let data else { return }
+            if let data = data as? URL, data.pathExtension.lowercased() == "pdf" {
+                errorText = nil
+                onFileChosen(data)
+            }
+            if let data = data as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                errorText = nil
+                onFileChosen(url)
+            }
         }
         return false
     }
 }
 
 #Preview {
-    UploadView { _ in }
+    UploadView { _ in } onError: { _ in }
 }

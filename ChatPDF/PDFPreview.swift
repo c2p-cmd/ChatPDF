@@ -6,20 +6,15 @@ struct PDFPreview: View {
 
     var body: some View {
         Group {
-            if let url {
-                if let pdfDoc = PDFDocument(url: url) {
-                    PDFKitView(document: pdfDoc)
-                } else {
-                    PlaceholderView(fileName: url.lastPathComponent)
-                }
+            if let url, let pdfDoc = PDFDocument(url: url) {
+                PDFKitView(document: pdfDoc)
             } else {
                 PlaceholderView(fileName: "Untitled.pdf")
             }
         }
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
         .padding()
+        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -31,7 +26,7 @@ struct PDFKitView: NSViewRepresentable {
         view.document = document
         view.autoScales = true
         view.displayMode = .singlePageContinuous
-        view.backgroundColor = .white
+        view.backgroundColor = NSColor.clear
         return view
     }
 
@@ -46,7 +41,7 @@ private struct PlaceholderView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(fileName)
                 .font(.headline)
-                .foregroundColor(.appPrimary)
+                .foregroundStyle(Color.primary)
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.gray.opacity(0.2))
                 .frame(height: 12)
@@ -58,8 +53,6 @@ private struct PlaceholderView: View {
                 .frame(height: 200)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
     }
 }
 

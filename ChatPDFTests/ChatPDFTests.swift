@@ -149,3 +149,17 @@ struct StreamingChatTests {
         #expect(!vm.isRunning)
     }
 }
+
+struct StartupMessageTests {
+    @Test func missingEmbedderGivesActionableMessage() {
+        struct E: Error, CustomStringConvertible { var description: String { "configurationFileError(\"config.json\", \"Contents/Resources\")" } }
+        let msg = VecturaService.startupMessage(for: E())
+        #expect(msg.contains("download_model.py"))
+        #expect(msg.contains("rebuild"))
+    }
+
+    @Test func otherFailuresStillExplain() {
+        let msg = VecturaService.startupMessage(for: URLError(.cannotConnectToHost))
+        #expect(msg.contains("couldn't start"))
+    }
+}

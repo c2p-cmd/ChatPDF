@@ -77,6 +77,8 @@ final class AppViewModel<Ingestor: IngestService> {
     var error: CustomError? = nil
     var showError: Bool = false
     var llmDownloadState: LLMDownloadState = .unavailable
+    /// Set when the search engine could not start; the app shows this instead of falling back to mocks.
+    var startupError: String? = nil
 
     private let ingestionService: IngestService
     private let llmDownloadService: LLMDownloadService?

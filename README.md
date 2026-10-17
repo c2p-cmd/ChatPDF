@@ -10,7 +10,7 @@ ChatPDF brings conversational AI to your PDF documents using a local-first appro
 
 ChatPDF implements a **Retrieval Augmented Generation (RAG)** pipeline:
 
-1. **PDF Ingestion** - Extracts text and splits into token-aware chunks (256 tokens with 15% overlap)
+1. **PDF Ingestion** - Extracts text and splits into token-aware chunks (512 tokens with 15% overlap)
 2. **Embeddings** - Converts text chunks to vector embeddings using MLX embedders
 3. **Vector Search** - Finds semantically similar chunks using VecturaKit vector database
 4. **Context Assembly** - Builds context from top matching chunks (filtered by relevance score)
@@ -139,12 +139,14 @@ The default run covers retrieval, the intent router, output sanitising and local
 ## Configuration
 
 ### Chunking Parameters (in Service.swift)
-- Default chunk size: 256 tokens
+- Default chunk size: 512 tokens (tuned on the test papers: 256 split lists such as research objectives across chunks)
 - Overlap: 15%
+- The bibliography (everything after a "References" heading in the second half of the document) is not indexed
 - These can be adjusted in the `ingest(url:)` method
 
 ### Search Parameters (in Service.swift)
-- Relevance score threshold: 0.22 (also gates the "unrelated" decline)
+- Context selection keeps the best 2 chunks plus any scoring above 0.22 or within 60% of the best score
+- "Unrelated" questions are declined only if the best retrieval score is at or below 0.15
 - Max chunks returned: 5, of which up to 4 reach the prompt. The best 2 are always kept even when every score is below the threshold (the model can say "not found" itself), so a low-scoring document never gets an empty context
 - Adjust in `performReply(to:)`; the retrieval step itself is `retrieve(_:)`
 

@@ -1,8 +1,10 @@
 import Foundation
+import MLXLMCommon
 
 // MARK: - Models
-struct ChatMessage: Identifiable, Equatable {
-    enum Role { case user, assistant, typing }
+/// Plain value type used by both the UI and the service actor, so it must not be main-actor isolated.
+nonisolated struct ChatMessage: Identifiable, Equatable, Sendable {
+    enum Role { case user, assistant, typing, system }
     let id: UUID
     let role: Role
     let text: String
@@ -32,6 +34,25 @@ struct ChatMessage: Identifiable, Equatable {
     
     var sources: [String] {
         self.answer?.sources ?? []
+    }
+    
+    func asChatMessage() -> MLXLMCommon.Chat.Message {
+        var role: MLXLMCommon.Chat.Message.Role
+        switch self.role {
+        case .user:
+            role = .user
+        case .assistant, .typing:
+            role = .assistant
+        case .system:
+            role = .system
+        }
+        return MLXLMCommon.Chat.Message(role: role, content: self.text)
+    }
+}
+
+extension [ChatMessage] {
+    nonisolated func asChatHistory() -> [MLXLMCommon.Chat.Message] {
+        map { $0.asChatMessage() }
     }
 }
 
@@ -71,14 +92,14 @@ struct ChunkRecord: Hashable {
     let source: String
 }
 
-struct ChatAnswer: Equatable {
+nonisolated struct ChatAnswer: Equatable, Sendable {
     let finalAnswer: String
     let thinking: String?
     let sources: [String]
 }
 
 // MARK: - Mock Ingestion Service
-final class MockIngestionService: IngestService {
+nonisolated final class MockIngestionService: IngestService {
     // Duration range in seconds; default 1.5–3.0
     var minDelay: TimeInterval = 1.5
     var maxDelay: TimeInterval = 3.0

@@ -116,14 +116,14 @@ private struct MessageBubble: View {
     var alignment: Alignment {
         switch message.role {
         case .user: return .trailing
-        case .assistant, .typing: return .leading
+        default:  return .leading
         }
     }
     
     var horizontalAlignment: HorizontalAlignment {
         switch message.role {
         case .user: return .trailing
-        case .assistant, .typing: return .leading
+        default: return .leading
         }
     }
     

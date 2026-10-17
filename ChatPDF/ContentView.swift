@@ -27,14 +27,17 @@ struct ContentView: View {
                     VStack {
                         UploadView { url in
                             Task {
-                                try await vecturaService?.clearAll()
-                                appVM.handleFile(url: url)
+                                do {
+                                    try await vecturaService?.clearAll()
+                                    appVM.handleFile(url: url)
+                                } catch {
+                                    appVM.showError(error)
+                                }
                             }
                         } onError: { err in
                             self.appVM.showError(err)
                         }
                         .transition(.opacity.combined(with: .scale))
-                        .disabled(appVM.error != nil)
                         
                         if let error = appVM.error {
                             Spacer()
@@ -55,7 +58,7 @@ struct ContentView: View {
             }
             .alert(isPresented: $appVM.showError, error: appVM.error) { _ in
                 Button(role: .close) {
-                    self.appVM.showError = false
+                    self.appVM.dismissError()
                 }
             } message: { err in
                 Text(err.localizedDescription)

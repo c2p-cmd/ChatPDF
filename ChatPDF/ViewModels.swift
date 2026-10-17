@@ -178,6 +178,11 @@ final class AppViewModel<Ingestor: IngestService> {
         }
     }
     
+    func dismissError() {
+        self.showError = false
+        self.error = nil
+    }
+
     func showError(_ errorText: String) {
         self.error = CustomError(message: errorText)
         self.showError = true
@@ -211,44 +216,36 @@ final class ChatViewModel {
     }
     
     func reset() {
+        currentTask?.cancel()
+        currentTask = nil
         messages.removeAll()
     }
-    
+
     var isRunning: Bool {
         currentTask != nil
     }
 
     func send() {
-        self.currentTask?.cancel()
-        defer {
-            self.currentTask = nil
-        }
-        self.currentTask = Task {
-            let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return }
-            let userMsg = ChatMessage(role: .user, text: trimmed)
-            await MainActor.run {
-                messages.append(userMsg)
-                input = ""
-            }
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isRunning else { return }
 
-            // Typing indicator
-            await MainActor.run {
-                messages.append(ChatMessage(role: .typing, text: ""))
-            }
+        messages.append(ChatMessage(role: .user, text: trimmed))
+        input = ""
+        let typing = ChatMessage(role: .typing, text: "")
+        messages.append(typing)
 
+        currentTask = Task {
             let reply: ChatAnswer
             if let service = chatService {
                 reply = await service.reply(to: trimmed)
             } else {
                 reply = await mockChatService.reply(to: trimmed)
             }
-            await MainActor.run {
-                // Remove typing indicator if present
-                self.messages.removeAll(where: { $0.role == .typing })
-                
-                self.messages.append(ChatMessage(role: .assistant, answer: reply))
-            }
+            // A cancelled task belongs to a chat that was reset; drop its answer.
+            guard !Task.isCancelled else { return }
+            messages.removeAll { $0.id == typing.id }
+            messages.append(ChatMessage(role: .assistant, answer: reply))
+            currentTask = nil
         }
     }
 }

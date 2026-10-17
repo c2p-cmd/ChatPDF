@@ -41,6 +41,12 @@ struct UploadView: View {
                 errorText = nil
                 return handleDrop(providers)
             }
+
+            if let errorText {
+                Text(errorText)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+            }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,26 +76,32 @@ struct UploadView: View {
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-        guard let item = providers.first else { return false }
+        guard let item = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }) else {
+            errorText = "Please drop a PDF file."
+            return false
+        }
         item.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { data, err in
-            if let err {
-                Task { @MainActor in
-                    self.errorText = "Failed to load file."
+            let url: URL? = {
+                if let url = data as? URL { return url }
+                if let data = data as? Data { return URL(dataRepresentation: data, relativeTo: nil) }
+                return nil
+            }()
+            Task { @MainActor in
+                if let err {
+                    print(err)
+                    errorText = "Failed to load file."
+                    onError(err)
+                } else if let url, url.pathExtension.lowercased() == "pdf" {
+                    errorText = nil
+                    onFileChosen(url)
+                } else {
+                    errorText = "Please drop a .pdf file."
                 }
-                print(err)
-                return
-            }
-            guard let data else { return }
-            if let data = data as? URL, data.pathExtension.lowercased() == "pdf" {
-                errorText = nil
-                onFileChosen(data)
-            }
-            if let data = data as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                errorText = nil
-                onFileChosen(url)
             }
         }
-        return false
+        return true
     }
 }
 

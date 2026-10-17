@@ -19,10 +19,16 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		18DE546D308417FF00FC4B89 /* ChatPDFTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ChatPDFTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		18EA220C2FA4C3240080E48F /* ChatPDF.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ChatPDF.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		18DE546E308417FF00FC4B89 /* ChatPDFTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ChatPDFTests;
+			sourceTree = "<group>";
+		};
 		18EA220E2FA4C3240080E48F /* ChatPDF */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ChatPDF;
@@ -31,6 +37,11 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		18DE546A308417FF00FC4B89 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 		18EA22092FA4C3240080E48F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
@@ -52,6 +63,7 @@
 			isa = PBXGroup;
 			children = (
 				18EA220E2FA4C3240080E48F /* ChatPDF */,
+				18DE546E308417FF00FC4B89 /* ChatPDFTests */,
 				18EA220D2FA4C3240080E48F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -60,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				18EA220C2FA4C3240080E48F /* ChatPDF.app */,
+				18DE546D308417FF00FC4B89 /* ChatPDFTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -67,6 +80,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		18DE546C308417FF00FC4B89 /* ChatPDFTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 18DE5471308417FF00FC4B89 /* Build configuration list for PBXNativeTarget "ChatPDFTests" */;
+			buildPhases = (
+				18DE5469308417FF00FC4B89 /* Sources */,
+				18DE546A308417FF00FC4B89 /* Frameworks */,
+				18DE546B308417FF00FC4B89 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				18DE546E308417FF00FC4B89 /* ChatPDFTests */,
+			);
+			name = ChatPDFTests;
+			productName = ChatPDFTests;
+			productReference = 18DE546D308417FF00FC4B89 /* ChatPDFTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		18EA220B2FA4C3240080E48F /* ChatPDF */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 18EA22172FA4C3250080E48F /* Build configuration list for PBXNativeTarget "ChatPDF" */;
@@ -103,9 +134,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2640;
+				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					18DE546C308417FF00FC4B89 = {
+						CreatedOnToolsVersion = 27.1;
+					};
 					18EA220B2FA4C3240080E48F = {
 						CreatedOnToolsVersion = 26.4;
 					};
@@ -134,11 +168,17 @@
 			projectRoot = "";
 			targets = (
 				18EA220B2FA4C3240080E48F /* ChatPDF */,
+				18DE546C308417FF00FC4B89 /* ChatPDFTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		18DE546B308417FF00FC4B89 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 		18EA220A2FA4C3240080E48F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
@@ -147,6 +187,11 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		18DE5469308417FF00FC4B89 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 		18EA22082FA4C3240080E48F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
@@ -155,6 +200,56 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		18DE5472308417FF00FC4B89 /* Debug configuration for PBXNativeTarget "ChatPDFTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.ChatPDFTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ChatPDF.app/Contents/MacOS/ChatPDF";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		18DE5473308417FF00FC4B89 /* Release configuration for PBXNativeTarget "ChatPDFTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yourcompany.ChatPDFTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ChatPDF.app/Contents/MacOS/ChatPDF";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
 		18EA22152FA4C3250080E48F /* Debug configuration for PBXProject "ChatPDF" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -372,6 +467,14 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		18DE5471308417FF00FC4B89 /* Build configuration list for PBXNativeTarget "ChatPDFTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				18DE5472308417FF00FC4B89 /* Debug configuration for PBXNativeTarget "ChatPDFTests" */,
+				18DE5473308417FF00FC4B89 /* Release configuration for PBXNativeTarget "ChatPDFTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
 		18EA22072FA4C3240080E48F /* Build configuration list for PBXProject "ChatPDF" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

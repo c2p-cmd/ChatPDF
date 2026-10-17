@@ -60,7 +60,6 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     let vectordb: VecturaKit
     let tokenizer: Tokenizers.Tokenizer
     
-    private var chunkRecordsByText: [String: ChunkRecord] = [:]
     private var chunkRecordsByID: [String: ChunkRecord] = [:]
     private var pageTexts: [String] = []
     private let router: IntentRouter
@@ -141,7 +140,6 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         try await vectordb.reset()
         docCount = try await vectordb.documentCount
         self.chunkRecordsByID.removeAll()
-        self.chunkRecordsByText.removeAll()
         self.pageTexts.removeAll()
         print("After reset Docs: \(docCount)")
     }
@@ -192,7 +190,6 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                     source: url.lastPathComponent
                 )
 
-                chunkRecordsByText[chunkText] = record
                 chunkRecordsByID[id.uuidString] = record
 
                 print("""
@@ -216,12 +213,14 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         print("Ingested \(docCount) chunks from \(url.lastPathComponent)")
     }
     
-    private func generate(with container: ModelContainer, prompt: String) async throws -> String {
+    private func generate(with container: ModelContainer, prompt: String, maxTokens: Int) async throws -> String {
         try await container.perform { modelContext in
-            let input = try await modelContext.processor.prepare(input: .init(prompt: prompt))
+            let input = try await modelContext.processor.prepare(
+                input: .init(prompt: prompt, additionalContext: ["enable_thinking": false])
+            )
 
             let parameters = GenerateParameters(
-                maxTokens: 400,
+                maxTokens: maxTokens,
                 temperature: 0.2,
                 topP: 0.25,
                 topK: 20
@@ -314,7 +313,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     
     private func formatSources(from results: [VecturaSearchResult]) -> [String] {
         let lines = results.enumerated().map { index, result in
-            if let record = chunkRecordsByText[result.text] {
+            if let record = chunkRecordsByID[result.id.uuidString] {
                 return "[\(index + 1)] page \(record.page), chunk \(record.chunkIndex), score \(String(format: "%.3f", result.score))"
             } else {
                 return "[\(index + 1)] score \(String(format: "%.3f", result.score))"
@@ -337,6 +336,11 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         }.joined(separator: "\n\n")
     }
 
+    /// Vector search only: the raw top results for a question, before any intent routing.
+    func retrieve(_ message: String, limit: Int = 5) async throws -> [VecturaSearchResult] {
+        try await vectordb.search(query: makeSearchQuery(message), numResults: limit)
+    }
+
     func reply(to message: String) async -> ChatAnswer {
         do {
             if let canned = cannedResponse(for: message) {
@@ -350,9 +354,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             let intent = await router.classify(message)
             print("Intent: \(intent.rawValue)")
 
-            let query = makeSearchQuery(message)
-            let results: [VecturaSearchResult] = try await vectordb.search(query: query, numResults: 5)
-            let topResults = Array(results.prefix(5))
+            let topResults = try await retrieve(message)
 
             let context: String
             var sources: [String] = []
@@ -380,7 +382,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                     \(result.text)
                     """
                 }.joined(separator: "\n\n---\n\n")
-                sources = formatSources(from: topResults)
+                sources = formatSources(from: Array(selectedResults))
             }
 
             let prompt = """
@@ -402,8 +404,9 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             Final answer only:
             """
 
-            let rawAnswer = try await generate(with: llm, prompt: prompt)
-            let answer = cleanAnswer(rawAnswer)
+            let maxTokens = intent == .general ? 700 : 400
+            let rawAnswer = try await generate(with: llm, prompt: prompt, maxTokens: maxTokens)
+            let answer: (thought: String, cleanAnswer: String) = cleanAnswer(rawAnswer)
 
             if answer.cleanAnswer.isEmpty {
                 return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])

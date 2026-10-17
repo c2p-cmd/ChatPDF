@@ -103,7 +103,7 @@ Pick a folder containing `config.json` and `*.safetensors` (an MLX-format model 
 
 - The embedding model folder `ChatPDF/qwen3-embedding` is git-ignored. If the app fails at launch, run `download_model.py` first.
 - `gemma-4-e4b-it-4bit` (mlx-vlm conversion) currently fails to load with the pinned `mlx-swift-lm`.
-- Scanned PDFs (images with no text layer) are rejected as empty; there is no OCR.
+- Pages with little selectable text (scans, slide decks exported as images) are OCR'd with Apple's Vision framework during ingest, so ingesting them is slower. A PDF is only rejected as empty if neither the text layer nor OCR finds anything.
 - Model folders are read through a security-scoped bookmark; if the folder is moved or deleted the app returns to the start screen.
 
 ## Project Structure
@@ -145,7 +145,7 @@ The default run covers retrieval, the intent router, output sanitising and local
 
 ### Search Parameters (in Service.swift)
 - Relevance score threshold: 0.22 (also gates the "unrelated" decline)
-- Max chunks returned: 5, of which up to 4 reach the prompt
+- Max chunks returned: 5, of which up to 4 reach the prompt. The best 2 are always kept even when every score is below the threshold (the model can say "not found" itself), so a low-scoring document never gets an empty context
 - Adjust in `performReply(to:)`; the retrieval step itself is `retrieve(_:)`
 
 ### Intent Router (in IntentRouter.swift)

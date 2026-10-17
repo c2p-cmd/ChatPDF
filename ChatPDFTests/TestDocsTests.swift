@@ -69,12 +69,15 @@ struct TestDocsRetrievalTests {
         }
     }
 
-    @Test func scannedPDFIsRejectedAsEmpty() async throws {
+    /// The scanned PDF has no text layer; OCR must recover enough text to index and retrieve.
+    @Test func scannedPDFIsOCRedAndSearchable() async throws {
         let service = try await makeService()
         try await service.clearAll()
-        await #expect(throws: IngestError.self) {
-            try await service.ingest(url: Doc.scanned.url)
-        }
+        try await service.ingest(url: Doc.scanned.url)
+        let results = try await service.retrieve("water", limit: 5)
+        print("OCR retrieval: \(results.count) results, top text: \(results.first?.text.prefix(200) ?? "-")")
+        #expect(!results.isEmpty)
+        #expect(results.contains { $0.text.split(whereSeparator: \.isWhitespace).count > 20 })
     }
 
     @Test func retrievalFindsTheAnswerChunk() async throws {

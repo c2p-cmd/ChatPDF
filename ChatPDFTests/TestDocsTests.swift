@@ -119,8 +119,9 @@ struct TestDocsRetrievalTests {
         for q in offTopic { offScores.append(try await service.retrieve(q).first?.score ?? 0) }
         print("RETRIEVAL on-topic top scores: \(onScores) off-topic: \(offScores)")
 
-        #expect(onScores.allSatisfy { $0 > 0.22 }, "on-topic below cutoff: \(onScores)")
-        #expect(offScores.allSatisfy { $0 <= 0.22 }, "off-topic above cutoff: \(offScores)")
+        let cutoff = VecturaService.unrelatedScoreCutoff
+        #expect(onScores.allSatisfy { $0 > cutoff }, "on-topic below cutoff: \(onScores)")
+        #expect(offScores.allSatisfy { $0 <= cutoff }, "off-topic above cutoff: \(offScores)")
         #expect((onScores.min() ?? 0) > (offScores.max() ?? 1))
     }
 }

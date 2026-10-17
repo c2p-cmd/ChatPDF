@@ -65,6 +65,9 @@ private let benchCases: [BenchCase] = [
     .init(doc: rep, question: "How many flows were clustered?", expected: "topical", mustContain: ["342"]),
     .init(doc: rep, question: "What MOS did RTPengine report?", expected: "topical", mustContain: ["4.3"]),
     .init(doc: rep, question: "Give me an overview of this report", expected: "general", mustContain: ["5G", "SIP", "Open5GS"]),
+    .init(doc: gam, question: "What were the Research Objectives?", expected: "topical", mustContain: ["Investigate", "impact of a gamified"]),
+    .init(doc: gam, question: "And questions?", expected: "topical", mustContain: ["retention compared to traditional", "research question", "?"]),
+    .init(doc: gam, question: "Who wrote this paper?", expected: "topical", mustContain: ["Aromal", "Sharan"]),
     .init(doc: gam, question: "What is the null hypothesis?", expected: "topical", mustContain: ["no significant difference"]),
     .init(doc: gam, question: "What is the capital of France?", expected: "unrelated", mustContain: []),
 ]

@@ -184,3 +184,36 @@ struct ContextSelectionTests {
         #expect(VecturaService.selectContext([]).isEmpty)
     }
 }
+
+struct ConversationHelperTests {
+    @Test func followUpsAreDetected() {
+        #expect(VecturaService.isFollowUp("And questions?"))
+        #expect(VecturaService.isFollowUp("what about the second one"))
+        #expect(!VecturaService.isFollowUp("What throughput did the Raspberry Pi achieve in the experiments?"))
+        #expect(!VecturaService.isFollowUp("Why did the Raspberry Pi sessions fail?"))
+        #expect(!VecturaService.isFollowUp("Who wrote this paper?"))
+    }
+
+    @Test func followUpIsSearchedWithThePreviousQuestion() {
+        let q = VecturaService.retrievalQuery("And questions?", previousQuestion: "What were the Research Objectives?")
+        #expect(q.contains("Research Objectives") && q.contains("And questions?"))
+        let standalone = "What throughput did the Raspberry Pi achieve in the experiments?"
+        #expect(VecturaService.retrievalQuery(standalone, previousQuestion: "x") == standalone)
+        #expect(VecturaService.retrievalQuery("And questions?", previousQuestion: nil) == "And questions?")
+    }
+
+    @Test func titlePageQuestionsGetTheHeader() {
+        #expect(VecturaService.needsDocumentHeader("Who wrote this paper?"))
+        #expect(VecturaService.needsDocumentHeader("Who are the authors?"))
+        #expect(VecturaService.needsDocumentHeader("Which professor supervised the course?"))
+        #expect(!VecturaService.needsDocumentHeader("What throughput did the Raspberry Pi achieve?"))
+    }
+
+    @Test func referencesAreDroppedFromTheSecondHalf() {
+        let pages = ["Intro text", "Methods text", "Results text", "Conclusion\nReferences\n[1] Smith 2020", "[2] Jones 2019"]
+        let kept = VecturaService.removeReferences(from: pages)
+        #expect(kept.count == 4)
+        #expect(kept.last == "Conclusion")
+        #expect(VecturaService.removeReferences(from: ["References\nearly", "body", "body", "body"]) == ["References\nearly", "body", "body", "body"])
+    }
+}

@@ -102,10 +102,36 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     
     let url: URL = Bundle.main.resourceURL!
     
-    init() async throws {
+    /// Retrieval settings; defaults are what the app ships with.
+    struct Tuning: Sendable {
+        var hybridWeight: Float = 0.5        // vector share of the hybrid score (rest is BM25)
+        var bm25Normalization: Float = 10
+        var chunkSize = 512
+        var excludeReferences = true
+    }
+    let tuning: Tuning
+
+    /// Drops the bibliography: everything from a standalone "References" heading in the second
+    /// half of the document. Reference lists are word-dense and outrank real content in search.
+    nonisolated static func removeReferences(from pages: [String]) -> [String] {
+        let heading = #"(?im)^\s*(?:[IVX0-9]+\.?\s*)?(references|bibliography)\s*$"#
+        for (index, text) in pages.enumerated() where Double(index) >= Double(pages.count) * 0.5 - 0.5 {
+            guard let range = text.range(of: heading, options: .regularExpression) else { continue }
+            let before = String(text[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return Array(pages[..<index]) + (before.isEmpty ? [] : [before])
+        }
+        return pages
+    }
+
+    init(tuning: Tuning = Tuning()) async throws {
+        self.tuning = tuning
         self.config = try VecturaConfig(
             name: "embeddings-collection",
-            dimension: nil  // Auto-detect dimension from MLX embedder
+            dimension: nil,  // Auto-detect dimension from MLX embedder
+            searchOptions: .init(
+                hybridWeight: tuning.hybridWeight,
+                bm25NormalizationFactor: tuning.bm25Normalization
+            )
         )
         guard Bundle.main.resourceURL != nil else {
             throw URLError(.badURL)
@@ -216,9 +242,14 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         docCount = try await vectordb.documentCount
         self.chunkRecordsByID.removeAll()
         self.pageTexts.removeAll()
+        self.history.removeAll()
         print("After reset Docs: \(docCount)")
     }
     
+    /// Best retrieval score at or below which an "unrelated" question is declined. On-topic questions
+    /// score about 0.22-0.36 with 512-token chunks and off-topic ones under 0.1.
+    nonisolated static let unrelatedScoreCutoff: Float = 0.15
+
     /// Pages with fewer words than this are treated as image-based and OCR'd.
     nonisolated static let sparsePageWordCount = 40
 
@@ -285,6 +316,11 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             pageTexts.append((text: pageString, page: pageIndex + 1))
         }
         
+        if tuning.excludeReferences {
+            let kept = Self.removeReferences(from: pageTexts.map(\.text))
+            pageTexts = kept.enumerated().map { (text: $0.element, page: pageTexts[$0.offset].page) }
+        }
+
         guard !pageTexts.isEmpty else {
             throw IngestError.emptyPDF
         }
@@ -296,7 +332,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         var globalChunkIndex = 0
 
         for pageData in pageTexts {
-            let chunkSize = 256
+            let chunkSize = tuning.chunkSize
             let overlap = Int(ceil(Double(chunkSize) * 0.15))
             let chunks: [String] = split(pageData.text, maxTokens: chunkSize, overlapTokens: overlap)
 
@@ -521,6 +557,44 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         try await vectordb.search(query: makeSearchQuery(message), numResults: limit)
     }
 
+    // MARK: Conversation memory and query helpers
+
+    private struct Exchange { let question: String; let answer: String }
+    private var history: [Exchange] = []
+
+    /// Short or connective messages ("And questions?", "what about the second one") only make
+    /// sense with the previous question, so retrieval and routing see both.
+    nonisolated static func isFollowUp(_ message: String) -> Bool {
+        let lowered = message.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = lowered.split(whereSeparator: { $0.isWhitespace }).count
+        let starters = ["and ", "also ", "what about", "how about", "then ", "so "]
+        return words <= 2 || starters.contains { lowered.hasPrefix($0) }
+    }
+
+    nonisolated static func retrievalQuery(_ message: String, previousQuestion: String?) -> String {
+        guard let previousQuestion, isFollowUp(message) else { return message }
+        return "\(previousQuestion) \(message)"
+    }
+
+    /// Questions about who/what the document is (title page facts) that retrieval cannot reliably find.
+    nonisolated static func needsDocumentHeader(_ message: String) -> Bool {
+        let pattern = #"\b(authors?|wrote|written|writer|who (made|created)|title|professor|supervis\w*|affiliation|email)\b"#
+        return message.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func documentHeader() -> String? {
+        guard let first = pageTexts.first else { return nil }
+        let ids = tokenizer.encode(text: first)
+        return tokenizer.decode(tokenIds: Array(ids.prefix(300)))
+    }
+
+    /// Only genuine follow-ups get context, and only the previous question (no answer text), so the
+    /// model is not tempted to continue a Q/A transcript.
+    private func conversationBlock(isFollowUp: Bool) -> String {
+        guard isFollowUp, let last = history.last else { return "" }
+        return "The user's previous question was: \"\(last.question)\". The question below is a follow-up to it.\n\n"
+    }
+
     private func performReply(to message: String) async -> ChatAnswer {
         lastGeneration = nil
         do {
@@ -532,16 +606,18 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 return ChatAnswer(finalAnswer: "The local language model is not downloaded yet.", thinking: nil, sources: [])
             }
 
-            let intent = await router.classify(message)
-            print("Intent: \(intent.rawValue) :: \(message)")
+            let query = Self.retrievalQuery(message, previousQuestion: history.last?.question)
+            let intent = await router.classify(query)
+            print("Intent: \(intent.rawValue) :: \(message)" + (query == message ? "" : "  (follow-up, searched as: \(query))"))
 
-            let topResults = try await retrieve(message)
+            let topResults = try await retrieve(query)
 
             let context: String
             var sources: [String] = []
+            var extraInstruction = ""
 
             switch intent {
-            case .unrelated where (topResults.first?.score ?? 0) <= 0.22:
+            case .unrelated where (topResults.first?.score ?? 0) <= Self.unrelatedScoreCutoff:
                 // Classifier and retrieval agree the question is off-topic.
                 return ChatAnswer(
                     finalAnswer: "That doesn't look related to this document. Try asking about its contents, or ask for a summary.",
@@ -557,13 +633,20 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                     return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
                 }
                 let selectedResults = Self.selectContext(topResults)
-                context = selectedResults.enumerated().map { index, result in
+                var blocks = selectedResults.enumerated().map { index, result in
                     """
                     [Source \(index + 1)]
                     \(result.text)
                     """
-                }.joined(separator: "\n\n---\n\n")
+                }
                 sources = formatSources(from: Array(selectedResults))
+                if Self.needsDocumentHeader(message), let header = documentHeader() {
+                    // Title-page facts live only on page 1; extra retrieved chunks just distract a small model.
+                    blocks = ["[Title page - authors and affiliations appear here; a professor or supervisor is not an author]\n\(header)"]
+                    sources = ["[title page] page 1"]
+                    extraInstruction = "This question is about the title page: give every relevant name or detail it shows, not just one.\n"
+                }
+                context = blocks.joined(separator: "\n\n---\n\n")
             }
 
             let prompt = """
@@ -574,14 +657,14 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             - Never output images, links or URLs.
             - Do not show reasoning.
             - Do not include <think> tags.
-            - Answer directly in 1 short paragraph or up to 3 bullet points.
+            \(extraInstruction)- Answer directly and completely. Use a short paragraph, or a bullet list when the answer has several items (for example objectives, steps or names). When listing, include every matching item in the text, not just the first few.
             - If the answer is not in the context, say: "I could not find that in the document."
 
             <document>
             \(context)
             </document>
 
-            Question:
+            \(conversationBlock(isFollowUp: query != message))Question:
             \(message)
 
             Final answer only:
@@ -603,6 +686,8 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
             }
 
+            history.append(Exchange(question: message, answer: answer.cleanAnswer))
+            if history.count > 4 { history.removeFirst(history.count - 4) }
             return ChatAnswer(finalAnswer: answer.cleanAnswer, thinking: answer.thought, sources: sources)
         } catch {
             print(error)

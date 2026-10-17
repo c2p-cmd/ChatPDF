@@ -369,12 +369,14 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             .replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         
-        return (thought: thought, cleanAnswer: Self.stripRemoteContent(cleaned))
+        let cleanAnswer = Self.stripRemoteContent(cleaned)
+        
+        return (thought: thought, cleanAnswer: cleanAnswer)
     }
 
     /// Model output is untrusted (a PDF can inject instructions). Markdown images and links are
     /// removed so rendering the answer can never fetch a remote URL or hide data in one.
-    static func stripRemoteContent(_ text: String) -> String {
+    nonisolated static func stripRemoteContent(_ text: String) -> String {
         var out = text
         let rules: [(String, String)] = [
             (#"!\[[^\]]*\]\([^)]*\)"#, ""),            // ![alt](url)

@@ -62,6 +62,11 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     
     private var chunkRecordsByText: [String: ChunkRecord] = [:]
     private var chunkRecordsByID: [String: ChunkRecord] = [:]
+    private var pageTexts: [String] = []
+    private let router: IntentRouter
+
+    /// Token budget for sending document text directly to the LLM.
+    private let wholeDocumentTokenBudget = 3000
     
     var llm: ModelContainer?
     
@@ -79,6 +84,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         self.embedder = try await MLXEmbedder(configuration: ModelConfiguration(directory: url))
         self.vectordb = try await VecturaKit(config: config, embedder: embedder)
         self.tokenizer = try await AutoTokenizer.from(directory: url)
+        self.router = IntentRouter(embedder: embedder)
     }
     
     func downloadLLM(onProgress: @Sendable @escaping (Progress) -> Void) async throws {
@@ -136,6 +142,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         docCount = try await vectordb.documentCount
         self.chunkRecordsByID.removeAll()
         self.chunkRecordsByText.removeAll()
+        self.pageTexts.removeAll()
         print("After reset Docs: \(docCount)")
     }
     
@@ -161,6 +168,8 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             throw IngestError.emptyPDF
         }
         
+        self.pageTexts.append(contentsOf: pageTexts.map(\.text))
+
         // 3. Split into chunks
         var docCount = 0
         var globalChunkIndex = 0
@@ -315,6 +324,19 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         return lines
     }
     
+    /// Whole document if it fits the budget, otherwise the opening of each page spread across the document.
+    private func wholeDocumentContext() -> String {
+        let full = pageTexts.joined(separator: "\n\n")
+        if tokenCount(full) <= wholeDocumentTokenBudget { return full }
+
+        let perPage = max(1, wholeDocumentTokenBudget / pageTexts.count)
+        return pageTexts.enumerated().map { index, text in
+            let ids = tokenizer.encode(text: text)
+            let excerpt = tokenizer.decode(tokenIds: Array(ids.prefix(perPage)))
+            return "[Page \(index + 1)]\n\(excerpt)"
+        }.joined(separator: "\n\n")
+    }
+
     func reply(to message: String) async -> ChatAnswer {
         do {
             if let canned = cannedResponse(for: message) {
@@ -325,22 +347,41 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 return ChatAnswer(finalAnswer: "The local language model is not downloaded yet.", thinking: nil, sources: [])
             }
 
+            let intent = await router.classify(message)
+            print("Intent: \(intent.rawValue)")
+
             let query = makeSearchQuery(message)
             let results: [VecturaSearchResult] = try await vectordb.search(query: query, numResults: 5)
-
-            guard !results.isEmpty else {
-                return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
-            }
-
             let topResults = Array(results.prefix(5))
-            let selectedResults = topResults.filter { $0.score > 0.22 }.prefix(4)
 
-            let context = selectedResults.enumerated().map { index, result in
-                """
-                [Source \(index + 1)]
-                \(result.text)
-                """
-            }.joined(separator: "\n\n---\n\n")
+            let context: String
+            var sources: [String] = []
+
+            switch intent {
+            case .unrelated where (topResults.first?.score ?? 0) <= 0.22:
+                // Classifier and retrieval agree the question is off-topic.
+                return ChatAnswer(
+                    finalAnswer: "That doesn't look related to this document. Try asking about its contents, or ask for a summary.",
+                    thinking: nil,
+                    sources: []
+                )
+
+            case .general where !pageTexts.isEmpty:
+                context = wholeDocumentContext()
+
+            default:
+                guard !topResults.isEmpty else {
+                    return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
+                }
+                let selectedResults = topResults.filter { $0.score > 0.22 }.prefix(4)
+                context = selectedResults.enumerated().map { index, result in
+                    """
+                    [Source \(index + 1)]
+                    \(result.text)
+                    """
+                }.joined(separator: "\n\n---\n\n")
+                sources = formatSources(from: topResults)
+            }
 
             let prompt = """
             You are answering questions about an uploaded PDF.
@@ -368,7 +409,6 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
             }
 
-            let sources = formatSources(from: topResults)
             return ChatAnswer(finalAnswer: answer.cleanAnswer, thinking: answer.thought, sources: sources)
         } catch {
             print(error)

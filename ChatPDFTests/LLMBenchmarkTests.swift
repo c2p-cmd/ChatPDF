@@ -78,6 +78,31 @@ struct LLMBenchmarkTests {
             ?? root.appendingPathComponent(name)
     }
 
+    @Test func streamingEmitsGrowingPartials() async throws {
+        let env = ProcessInfo.processInfo.environment
+        let dir = try #require(env["MODEL_DIR"])
+        let service = try await VecturaService()
+        await service.setLLM(try await loadModelContainer(
+            from: URL(fileURLWithPath: dir), using: TokenizersLoader()))
+        try await service.clearAll()
+        try await service.ingest(url: fixture(srs))
+
+        final class Box: @unchecked Sendable {
+            let lock = NSLock(); var partials: [(Date, String)] = []
+            func add(_ s: String) { lock.lock(); partials.append((Date(), s)); lock.unlock() }
+        }
+        let box = Box()
+        let start = Date()
+        let answer = await service.reply(to: "Summarize this paper in a few sentences", onPartial: { box.add($0) })
+        let parts = box.partials
+        print("STREAM partials=\(parts.count) firstAfter=\(parts.first.map { $0.0.timeIntervalSince(start) } ?? -1)s total=\(Date().timeIntervalSince(start))s")
+        #expect(parts.count > 3, "expected multiple partial updates, got \(parts.count)")
+        let texts = parts.map(\.1)
+        #expect(zip(texts, texts.dropFirst()).allSatisfy { $1.hasPrefix($0.prefix(max(0, $0.count - 8))) }, "partials should grow monotonically")
+        #expect(!texts.contains { $0.contains("<think>") || $0.contains("http") })
+        #expect(answer.finalAnswer.hasPrefix(String(texts.last!.prefix(20))))
+    }
+
     @Test func benchmark() async throws {
         let env = ProcessInfo.processInfo.environment
         let dir = try #require(env["MODEL_DIR"])

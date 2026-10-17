@@ -3,18 +3,20 @@ import Foundation
 // MARK: - Models
 struct ChatMessage: Identifiable, Equatable {
     enum Role { case user, assistant, typing }
-    let id = UUID()
+    let id: UUID
     let role: Role
     let text: String
     let answer: ChatAnswer?
     
-    init(role: Role, text: String) {
+    init(id: UUID = UUID(), role: Role, text: String) {
+        self.id = id
         self.role = role
         self.text = text
         self.answer = nil
     }
     
-    init (role: Role, answer: ChatAnswer) {
+    init (id: UUID = UUID(), role: Role, answer: ChatAnswer) {
+        self.id = id
         self.role = role
         self.text = answer.finalAnswer
         self.answer = answer
@@ -98,13 +100,19 @@ actor MockChatService: ChatService {
     ]
     private var index: Int = 0
 
-    func reply(to message: String) async -> ChatAnswer {
+    func reply(to message: String, onPartial: (@Sendable (String) -> Void)?) async -> ChatAnswer {
         // Deterministic rotation
         let response = responses[index % responses.count]
         index += 1
         // Simulate short thinking delay 0.8–1.2s
         let delay = Double.random(in: 0.8...1.2)
-        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        // Stream the canned answer word by word so the UI path is exercised without an LLM.
+        var shown = ""
+        for word in response.split(separator: " ") {
+            shown += (shown.isEmpty ? "" : " ") + word
+            onPartial?(shown)
+            try? await Task.sleep(nanoseconds: UInt64(delay / Double(response.split(separator: " ").count) * 1_000_000_000))
+        }
         return ChatAnswer(finalAnswer: response, thinking: "Ahh yes, the user asked a great question.", sources: [
             "[p:1,c:12]",
         ])

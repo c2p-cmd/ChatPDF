@@ -122,3 +122,30 @@ struct ErrorMessageTests {
         #expect(!generic.contains("Problem with handling"))
     }
 }
+
+@MainActor
+struct StreamingChatTests {
+    @Test func streamedTextIsReplacedByFinalAnswerWithSources() async throws {
+        let vm = ChatViewModel()
+        vm.input = "hello?"
+        vm.send()
+
+        var sawPartial = false
+        var typingID: UUID?
+        for _ in 0..<60 {
+            try await Task.sleep(for: .milliseconds(100))
+            if let last = vm.messages.last {
+                typingID = typingID ?? last.id
+                if last.role == .assistant, last.answer == nil, !last.text.isEmpty { sawPartial = true }
+                if last.answer != nil { break }
+            }
+        }
+        let last = try #require(vm.messages.last)
+        #expect(sawPartial, "never saw streamed text before the final answer")
+        #expect(last.answer != nil)
+        #expect(!last.sources.isEmpty)
+        #expect(last.id == typingID, "streamed message should keep one stable id")
+        #expect(vm.messages.filter { $0.role == .typing }.isEmpty)
+        #expect(!vm.isRunning)
+    }
+}

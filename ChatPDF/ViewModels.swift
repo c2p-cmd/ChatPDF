@@ -305,17 +305,32 @@ final class ChatViewModel {
         let typing = ChatMessage(role: .typing, text: "")
         messages.append(typing)
 
+        let replyID = typing.id
         currentTask = Task {
+            // Streamed text replaces the typing indicator in place (same id), then the final
+            // answer (with sources) replaces the streamed text.
+            let onPartial: @Sendable (String) -> Void = { partial in
+                Task { @MainActor in
+                    // Ignore partials that arrive after the final answer (it carries `answer`).
+                    guard !Task.isCancelled,
+                          let i = self.messages.firstIndex(where: { $0.id == replyID }),
+                          self.messages[i].answer == nil else { return }
+                    self.messages[i] = ChatMessage(id: replyID, role: .assistant, text: partial)
+                }
+            }
             let reply: ChatAnswer
             if let service = chatService {
-                reply = await service.reply(to: trimmed)
+                reply = await service.reply(to: trimmed, onPartial: onPartial)
             } else {
-                reply = await mockChatService.reply(to: trimmed)
+                reply = await mockChatService.reply(to: trimmed, onPartial: onPartial)
             }
             // A cancelled task belongs to a chat that was reset; drop its answer.
             guard !Task.isCancelled else { return }
-            messages.removeAll { $0.id == typing.id }
-            messages.append(ChatMessage(role: .assistant, answer: reply))
+            if let i = messages.firstIndex(where: { $0.id == replyID }) {
+                messages[i] = ChatMessage(id: replyID, role: .assistant, answer: reply)
+            } else {
+                messages.append(ChatMessage(id: replyID, role: .assistant, answer: reply))
+            }
             currentTask = nil
         }
     }

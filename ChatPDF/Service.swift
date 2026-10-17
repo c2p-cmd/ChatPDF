@@ -19,7 +19,14 @@ import VecturaKit
 import VecturaMLXKit
 
 protocol ChatService {
-    func reply(to message: String) async -> ChatAnswer
+    /// `onPartial` receives the cleaned answer text so far while the model is generating.
+    func reply(to message: String, onPartial: (@Sendable (String) -> Void)?) async -> ChatAnswer
+}
+
+extension ChatService {
+    func reply(to message: String) async -> ChatAnswer {
+        await reply(to: message, onPartial: nil)
+    }
 }
 
 protocol IngestService {
@@ -198,10 +205,10 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         try await performIngest(url: url)
     }
 
-    func reply(to message: String) async -> ChatAnswer {
+    func reply(to message: String, onPartial: (@Sendable (String) -> Void)? = nil) async -> ChatAnswer {
         await acquire()
         defer { release() }
-        return await performReply(to: message)
+        return await performReply(to: message, onPartial: onPartial)
     }
 
     private func performClearAll() async throws {
@@ -283,7 +290,10 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         print("Ingested \(docCount) chunks from \(url.lastPathComponent)")
     }
     
-    private func generate(with container: ModelContainer, prompt: String, maxTokens: Int) async throws -> (String, GenerateCompletionInfo?) {
+    private func generate(
+        with container: ModelContainer, prompt: String, maxTokens: Int,
+        onPartial: (@Sendable (String) -> Void)? = nil
+    ) async throws -> (String, GenerateCompletionInfo?) {
         try await container.perform { modelContext in
             let input = try await modelContext.processor.prepare(
                 input: .init(prompt: prompt, additionalContext: ["enable_thinking": false])
@@ -297,6 +307,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             )
 
             var output = ""
+            var lastEmit = Date.distantPast
 
             for await partialGeneration in try MLXLMCommon.generate(
                 input: input,
@@ -306,6 +317,12 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 switch partialGeneration {
                 case .chunk(let string):
                     output += string
+                    // Throttle UI updates to ~15/s so markdown re-rendering stays cheap.
+                    if let onPartial, Date().timeIntervalSince(lastEmit) > 0.07 {
+                        lastEmit = Date()
+                        let shown = Self.clean(output).cleanAnswer
+                        if !shown.isEmpty { onPartial(shown) }
+                    }
 
                 case .info(let info):
                     print(info.summary())
@@ -341,7 +358,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         return nil
     }
 
-    private func cleanAnswer(_ text: String) -> (thought: String, cleanAnswer: String) {
+    nonisolated static func clean(_ text: String) -> (thought: String, cleanAnswer: String) {
         let pattern = #"<think>([\s\S]*?)</think>"#
         
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -450,7 +467,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         try await vectordb.search(query: makeSearchQuery(message), numResults: limit)
     }
 
-    private func performReply(to message: String) async -> ChatAnswer {
+    private func performReply(to message: String, onPartial: (@Sendable (String) -> Void)?) async -> ChatAnswer {
         lastGeneration = nil
         do {
             if let canned = cannedResponse(for: message) {
@@ -517,7 +534,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             """
 
             let maxTokens = intent == .general ? 700 : 400
-            let (rawAnswer, info) = try await generate(with: llm, prompt: prompt, maxTokens: maxTokens)
+            let (rawAnswer, info) = try await generate(with: llm, prompt: prompt, maxTokens: maxTokens, onPartial: onPartial)
             lastGeneration = GenerationStats(
                 intent: intent.rawValue,
                 promptTokens: info?.promptTokenCount ?? 0,
@@ -526,7 +543,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 generateSeconds: info?.generateTime ?? 0,
                 rawOutput: rawAnswer
             )
-            let answer: (thought: String, cleanAnswer: String) = cleanAnswer(rawAnswer)
+            let answer: (thought: String, cleanAnswer: String) = Self.clean(rawAnswer)
 
             if answer.cleanAnswer.isEmpty {
                 return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])

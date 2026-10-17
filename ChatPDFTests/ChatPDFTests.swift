@@ -6,6 +6,7 @@
 import Foundation
 import MLXLMCommon
 import Testing
+import VecturaKit
 import VecturaMLXKit
 @testable import ChatPDF
 
@@ -186,5 +187,27 @@ struct PDFStagingTests {
         } catch {
             Issue.record("unexpected error \(error)")
         }
+    }
+}
+
+struct ContextSelectionTests {
+    private func result(_ score: Float) -> VecturaSearchResult {
+        VecturaSearchResult(id: UUID(), text: "chunk \(score)", score: score, createdAt: Date())
+    }
+
+    @Test func lowScoresStillYieldTheTopChunks() {
+        // Every score below the 0.22 cutoff used to produce an empty context.
+        let picked = VecturaService.selectContext([result(0.19), result(0.17), result(0.10), result(0.05), result(0.04)])
+        #expect(picked.count >= 2)
+        #expect(picked.first?.score == 0.19)
+    }
+
+    @Test func weakTailIsDroppedWhenTopScoresAreStrong() {
+        let picked = VecturaService.selectContext([result(0.60), result(0.50), result(0.30), result(0.10), result(0.05)])
+        #expect(picked.map(\.score) == [0.60, 0.50, 0.30])
+    }
+
+    @Test func emptyResultsStayEmpty() {
+        #expect(VecturaService.selectContext([]).isEmpty)
     }
 }

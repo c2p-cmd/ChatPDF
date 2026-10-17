@@ -14,6 +14,7 @@ import MLXLLM
 import MLXLMCommon
 import NaturalLanguage
 import PDFKit
+import Vision
 import Tokenizers
 import VecturaKit
 import VecturaMLXKit
@@ -225,6 +226,56 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         print("After reset Docs: \(docCount)")
     }
     
+    /// Pages with fewer words than this are treated as image-based and OCR'd.
+    nonisolated static let sparsePageWordCount = 40
+
+    /// OCRs a rendered page with Vision. Used for slides/scans whose text is baked into images.
+    nonisolated static func ocrText(for page: PDFPage) -> String {
+        let bounds = page.bounds(for: .mediaBox)
+        guard bounds.width > 0, bounds.height > 0 else { return "" }
+        // About 2000 px on the long edge keeps small slide text legible without huge bitmaps.
+        let scale = 2000 / max(bounds.width, bounds.height)
+        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        let image = page.thumbnail(of: size, for: .mediaBox)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return "" }
+
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        do {
+            try VNImageRequestHandler(cgImage: cgImage).perform([request])
+        } catch {
+            print("OCR failed: \(error)")
+            return ""
+        }
+        return (request.results ?? [])
+            .compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: "\n")
+    }
+
+    /// Text layer plus OCR for sparse pages (OCR lines already in the text layer are skipped).
+    private func extractText(from page: PDFPage) -> String {
+        let layer = (page.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let wordCount = layer.split(whereSeparator: \.isWhitespace).count
+        guard wordCount < Self.sparsePageWordCount else { return layer }
+
+        let extra = Self.ocrText(for: page)
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { !layer.localizedCaseInsensitiveContains($0) }
+            .joined(separator: "\n")
+        return [layer, extra].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    /// Context chunks for a topical question. Always keeps the best few chunks even when scores are
+    /// low, since the model can say "not found" itself; an empty context gives it nothing to judge.
+    nonisolated static func selectContext(_ results: [VecturaSearchResult]) -> [VecturaSearchResult] {
+        guard let best = results.first?.score else { return [] }
+        return results.prefix(4).enumerated().filter { index, result in
+            index < 2 || result.score > 0.22 || result.score >= best * 0.6
+        }.map(\.element)
+    }
+
     private func performIngest(url: URL) async throws {
         // 1. Load PDF
         guard let pdfDocument = PDFDocument(url: url) else {
@@ -235,11 +286,9 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         var pageTexts: [(text: String, page: Int)] = []
         
         for pageIndex in 0..<pdfDocument.pageCount {
-            guard let page = pdfDocument.page(at: pageIndex),
-                  let pageString = page.string,
-                  !pageString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
+            guard let page = pdfDocument.page(at: pageIndex) else { continue }
+            let pageString = extractText(from: page)
+            guard !pageString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             pageTexts.append((text: pageString, page: pageIndex + 1))
         }
         
@@ -357,6 +406,13 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         let thanks: Set<String> = ["thanks", "thank you", "thx"]
         if thanks.contains(normalized) {
             return "You're welcome."
+        }
+
+        let acknowledgements: Set<String> = [
+            "nice", "ok", "okay", "cool", "great", "got it", "awesome", "perfect", "good", "alright", "nice!", "great!"
+        ]
+        if acknowledgements.contains(normalized.trimmingCharacters(in: .punctuationCharacters)) {
+            return "Glad that helps! Ask me anything else about the document."
         }
 
         return nil
@@ -517,7 +573,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
                 guard !topResults.isEmpty else {
                     return ChatAnswer(finalAnswer: "I could not find that in the document.", thinking: nil, sources: [])
                 }
-                let selectedResults = topResults.filter { $0.score > 0.22 }.prefix(4)
+                let selectedResults = Self.selectContext(topResults)
                 context = selectedResults.enumerated().map { index, result in
                     """
                     [Source \(index + 1)]

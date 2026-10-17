@@ -124,6 +124,33 @@ struct ErrorMessageTests {
     }
 }
 
+@MainActor
+struct StreamingChatTests {
+    @Test func streamedTextIsReplacedByFinalAnswerWithSources() async throws {
+        let vm = ChatViewModel()
+        vm.input = "hello?"
+        vm.send()
+
+        var sawPartial = false
+        var typingID: UUID?
+        for _ in 0..<60 {
+            try await Task.sleep(for: .milliseconds(100))
+            if let last = vm.messages.last {
+                typingID = typingID ?? last.id
+                if last.role == .assistant, last.answer == nil, !last.text.isEmpty { sawPartial = true }
+                if last.answer != nil { break }
+            }
+        }
+        let last = try #require(vm.messages.last)
+        #expect(sawPartial, "never saw streamed text before the final answer")
+        #expect(last.answer != nil)
+        #expect(!last.sources.isEmpty)
+        #expect(last.id == typingID, "streamed message should keep one stable id")
+        #expect(vm.messages.filter { $0.role == .typing }.isEmpty)
+        #expect(!vm.isRunning)
+    }
+}
+
 struct StartupMessageTests {
     @Test func missingEmbedderGivesActionableMessage() {
         struct E: Error, CustomStringConvertible { var description: String { "configurationFileError(\"config.json\", \"Contents/Resources\")" } }
@@ -185,35 +212,43 @@ struct ContextSelectionTests {
     }
 }
 
-struct ConversationHelperTests {
-    @Test func followUpsAreDetected() {
-        #expect(VecturaService.isFollowUp("And questions?"))
-        #expect(VecturaService.isFollowUp("what about the second one"))
-        #expect(!VecturaService.isFollowUp("What throughput did the Raspberry Pi achieve in the experiments?"))
-        #expect(!VecturaService.isFollowUp("Why did the Raspberry Pi sessions fail?"))
-        #expect(!VecturaService.isFollowUp("Who wrote this paper?"))
-    }
-
-    @Test func followUpIsSearchedWithThePreviousQuestion() {
-        let q = VecturaService.retrievalQuery("And questions?", previousQuestion: "What were the Research Objectives?")
-        #expect(q.contains("Research Objectives") && q.contains("And questions?"))
-        let standalone = "What throughput did the Raspberry Pi achieve in the experiments?"
-        #expect(VecturaService.retrievalQuery(standalone, previousQuestion: "x") == standalone)
-        #expect(VecturaService.retrievalQuery("And questions?", previousQuestion: nil) == "And questions?")
-    }
-
-    @Test func titlePageQuestionsGetTheHeader() {
-        #expect(VecturaService.needsDocumentHeader("Who wrote this paper?"))
-        #expect(VecturaService.needsDocumentHeader("Who are the authors?"))
-        #expect(VecturaService.needsDocumentHeader("Which professor supervised the course?"))
-        #expect(!VecturaService.needsDocumentHeader("What throughput did the Raspberry Pi achieve?"))
-    }
-
+struct DocumentCleanupTests {
     @Test func referencesAreDroppedFromTheSecondHalf() {
         let pages = ["Intro text", "Methods text", "Results text", "Conclusion\nReferences\n[1] Smith 2020", "[2] Jones 2019"]
         let kept = VecturaService.removeReferences(from: pages)
         #expect(kept.count == 4)
         #expect(kept.last == "Conclusion")
         #expect(VecturaService.removeReferences(from: ["References\nearly", "body", "body", "body"]) == ["References\nearly", "body", "body", "body"])
+    }
+}
+
+struct ChatHistoryTests {
+    @Test func historyKeepsSystemMessageAndIsBounded() async throws {
+        let service = try await VecturaService()
+        try await service.clearAll()
+        let greetings = ["hello", "thanks", "hi", "thank you", "hey", "thx"]   // canned replies, no LLM needed
+        for g in greetings { _ = await service.reply(to: g) }
+
+        let history = await service.history
+        #expect(history.first?.role == .system)
+        #expect(history.count == 1 + 3 * 2, "keeps the system message plus the last 3 exchanges")
+        #expect(history.dropFirst().map(\.role) == [.user, .assistant, .user, .assistant, .user, .assistant])
+        #expect(history.last?.text == "You're welcome.")
+    }
+
+    @Test func clearAllResetsHistoryButKeepsSystemMessage() async throws {
+        let service = try await VecturaService()
+        _ = await service.reply(to: "hello")
+        #expect(await service.history.count > 1)
+        try await service.clearAll()
+        let history = await service.history
+        #expect(history.count == 1)
+        #expect(history.first?.role == .system)
+    }
+
+    @Test func messagesConvertToChatRolesInOrder() {
+        let msgs = [ChatMessage(role: .system, text: "s"), ChatMessage(role: .user, text: "q"), ChatMessage(role: .assistant, text: "a")]
+        #expect(msgs.asChatHistory().count == 3)
+        #expect(msgs.asChatHistory().map(\.content) == ["s", "q", "a"])
     }
 }

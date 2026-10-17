@@ -1,20 +1,24 @@
 import Foundation
+import MLXLMCommon
 
 // MARK: - Models
-struct ChatMessage: Identifiable, Equatable {
-    enum Role { case user, assistant, typing }
-    let id = UUID()
+/// Plain value type used by both the UI and the service actor, so it must not be main-actor isolated.
+nonisolated struct ChatMessage: Identifiable, Equatable, Sendable {
+    enum Role { case user, assistant, typing, system }
+    let id: UUID
     let role: Role
     let text: String
     let answer: ChatAnswer?
     
-    init(role: Role, text: String) {
+    init(id: UUID = UUID(), role: Role, text: String) {
+        self.id = id
         self.role = role
         self.text = text
         self.answer = nil
     }
     
-    init (role: Role, answer: ChatAnswer) {
+    init (id: UUID = UUID(), role: Role, answer: ChatAnswer) {
+        self.id = id
         self.role = role
         self.text = answer.finalAnswer
         self.answer = answer
@@ -30,6 +34,25 @@ struct ChatMessage: Identifiable, Equatable {
     
     var sources: [String] {
         self.answer?.sources ?? []
+    }
+    
+    func asChatMessage() -> MLXLMCommon.Chat.Message {
+        var role: MLXLMCommon.Chat.Message.Role
+        switch self.role {
+        case .user:
+            role = .user
+        case .assistant, .typing:
+            role = .assistant
+        case .system:
+            role = .system
+        }
+        return MLXLMCommon.Chat.Message(role: role, content: self.text)
+    }
+}
+
+extension [ChatMessage] {
+    nonisolated func asChatHistory() -> [MLXLMCommon.Chat.Message] {
+        map { $0.asChatMessage() }
     }
 }
 
@@ -69,14 +92,14 @@ struct ChunkRecord: Hashable {
     let source: String
 }
 
-struct ChatAnswer: Equatable {
+nonisolated struct ChatAnswer: Equatable, Sendable {
     let finalAnswer: String
     let thinking: String?
     let sources: [String]
 }
 
 // MARK: - Mock Ingestion Service
-final class MockIngestionService: IngestService {
+nonisolated final class MockIngestionService: IngestService {
     // Duration range in seconds; default 1.5–3.0
     var minDelay: TimeInterval = 1.5
     var maxDelay: TimeInterval = 3.0
@@ -98,13 +121,19 @@ actor MockChatService: ChatService {
     ]
     private var index: Int = 0
 
-    func reply(to message: String) async -> ChatAnswer {
+    func reply(to message: String, onPartial: (@Sendable (String) -> Void)?) async -> ChatAnswer {
         // Deterministic rotation
         let response = responses[index % responses.count]
         index += 1
         // Simulate short thinking delay 0.8–1.2s
         let delay = Double.random(in: 0.8...1.2)
-        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        // Stream the canned answer word by word so the UI path is exercised without an LLM.
+        var shown = ""
+        for word in response.split(separator: " ") {
+            shown += (shown.isEmpty ? "" : " ") + word
+            onPartial?(shown)
+            try? await Task.sleep(nanoseconds: UInt64(delay / Double(response.split(separator: " ").count) * 1_000_000_000))
+        }
         return ChatAnswer(finalAnswer: response, thinking: "Ahh yes, the user asked a great question.", sources: [
             "[p:1,c:12]",
         ])

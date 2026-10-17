@@ -52,6 +52,11 @@ private struct Messages: View {
                     proxy.scrollTo(last, anchor: .bottom)
                 }
             }
+            .onChange(of: messages.last?.text) {
+                if let last = messages.last?.id {
+                    proxy.scrollTo(last, anchor: .bottom)
+                }
+            }
             .onChange(of: messages.count) {
                 if let last = messages.last?.id {
                     withAnimation(.easeOut(duration: 0.22)) {
@@ -111,14 +116,14 @@ private struct MessageBubble: View {
     var alignment: Alignment {
         switch message.role {
         case .user: return .trailing
-        case .assistant, .typing: return .leading
+        default:  return .leading
         }
     }
     
     var horizontalAlignment: HorizontalAlignment {
         switch message.role {
         case .user: return .trailing
-        case .assistant, .typing: return .leading
+        default: return .leading
         }
     }
     

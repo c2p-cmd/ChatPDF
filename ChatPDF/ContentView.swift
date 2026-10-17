@@ -19,6 +19,8 @@ struct ContentView: View {
                 case .setupLLM:
                     ModelDownloadView(state: appVM.llmDownloadState) {
                         appVM.downloadLLM()
+                    } onChooseFolder: { url in
+                        appVM.useLocalModel(url: url)
                     } onCancel: {
                         appVM.cancelLLMDownload()
                     }
@@ -71,6 +73,7 @@ struct ContentView: View {
                     self.vecturaService = vectura
                     self.appVM = AppViewModel(ingestionService: vectura)
                     self.chatVM.initializeChatService(vectura)
+                    self.appVM.restoreLocalModel()
                 } catch {
                     print(error)
                     self.appVM = AppViewModel()

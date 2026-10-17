@@ -14,6 +14,7 @@ enum LLMDownloadState: Equatable {
     case unavailable
     case idle
     case downloading(ModelDownloadProgress)
+    case loadingLocal
     case ready
 }
 
@@ -40,6 +41,31 @@ struct ModelDownloadProgress: Equatable {
             completedUnitCount: progress.completedUnitCount,
             totalUnitCount: progress.totalUnitCount
         )
+    }
+}
+
+/// Persists the user's chosen model folder across launches (app-scoped security bookmark).
+enum ModelBookmark {
+    private static let key = "localModelBookmark"
+
+    static func save(_ url: URL) {
+        guard let data = try? url.bookmarkData(options: .withSecurityScope) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func resolve() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        var stale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: data, options: .withSecurityScope,
+            relativeTo: nil, bookmarkDataIsStale: &stale
+        ) else { return nil }
+        if stale { save(url) }
+        return url
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
     }
 }
 
@@ -129,6 +155,50 @@ final class AppViewModel<Ingestor: IngestService> {
                 }
             }
         }
+    }
+
+    private var scopedModelURL: URL?
+
+    /// Loads a model from a folder the user picked; remembers it for next launch.
+    func useLocalModel(url: URL, restoring: Bool = false) {
+        guard let llmDownloadService else {
+            showError("Model loading is unavailable.")
+            return
+        }
+        if case .loadingLocal = llmDownloadState { return }
+        if case .downloading = llmDownloadState { return }
+
+        scopedModelURL?.stopAccessingSecurityScopedResource()
+        let accessing = url.startAccessingSecurityScopedResource()
+        scopedModelURL = accessing ? url : nil
+        llmDownloadState = .loadingLocal
+
+        Task {
+            do {
+                try await llmDownloadService.loadLocalLLM(from: url)
+                ModelBookmark.save(url)
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.llmDownloadState = .ready
+                    self.phase = .upload
+                }
+            } catch {
+                print(error)
+                if accessing { url.stopAccessingSecurityScopedResource() }
+                self.scopedModelURL = nil
+                self.llmDownloadState = .idle
+                if restoring {
+                    ModelBookmark.clear()  // folder moved or deleted: fall back to the start screen
+                } else {
+                    self.showError(error)
+                }
+            }
+        }
+    }
+
+    /// Re-opens the previously chosen model folder, if any.
+    func restoreLocalModel() {
+        guard llmDownloadService != nil, let url = ModelBookmark.resolve() else { return }
+        useLocalModel(url: url, restoring: true)
     }
 
     func cancelLLMDownload() {

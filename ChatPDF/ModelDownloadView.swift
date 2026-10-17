@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ModelDownloadView: View {
     let state: LLMDownloadState
     let onDownload: () -> Void
+    let onChooseFolder: (URL) -> Void
     let onCancel: () -> Void
 
     private var progress: ModelDownloadProgress? {
@@ -16,6 +18,12 @@ struct ModelDownloadView: View {
     private var isDownloading: Bool {
         progress != nil
     }
+
+    private var isLoadingLocal: Bool {
+        state == .loadingLocal
+    }
+
+    @State private var showFolderPicker = false
 
     private var byteCountText: String? {
         guard let progress, progress.totalUnitCount > 0 else { return nil }
@@ -40,6 +48,10 @@ struct ModelDownloadView: View {
                 .foregroundStyle(Color.primary.opacity(0.7))
                 .font(.subheadline)
 
+            if isLoadingLocal {
+                ProgressView("Loading model...")
+            }
+
             if let progress {
                 VStack(spacing: 8) {
                     ProgressView(value: progress.fractionCompleted)
@@ -63,7 +75,13 @@ struct ModelDownloadView: View {
             HStack(spacing: 10) {
                 Button(isDownloading ? "Downloading..." : "Download Model", systemImage: "arrow.down.circle", action: onDownload)
                     .buttonStyle(.borderedProminent)
-                    .disabled(isDownloading)
+                    .disabled(isDownloading || isLoadingLocal)
+
+                Button(isLoadingLocal ? "Loading..." : "Use Local Model Folder...", systemImage: "folder") {
+                    showFolderPicker = true
+                }
+                .buttonStyle(.bordered)
+                .disabled(isDownloading || isLoadingLocal)
 
                 if isDownloading {
                     Button("Cancel", systemImage: "xmark.circle", role: .cancel, action: onCancel)
@@ -73,6 +91,9 @@ struct ModelDownloadView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fileImporter(isPresented: $showFolderPicker, allowedContentTypes: [.folder]) { result in
+            if case .success(let url) = result { onChooseFolder(url) }
+        }
     }
 }
 
@@ -81,5 +102,5 @@ struct ModelDownloadView: View {
         fractionCompleted: 0.42,
         completedUnitCount: 1_260_000_000,
         totalUnitCount: 3_000_000_000
-    ))) { } onCancel: { }
+    ))) { } onChooseFolder: { _ in } onCancel: { }
 }

@@ -79,3 +79,36 @@ struct OutputSanitizerTests {
         #expect(VecturaService.stripRemoteContent("Throughput was 33.8 Mbps (see Table III).") == "Throughput was 33.8 Mbps (see Table III).")
     }
 }
+
+struct LocalModelFolderTests {
+    private func emptyTempDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test func rejectsFolderWithoutConfig() async throws {
+        let service = try await VecturaService()
+        let dir = try emptyTempDir()
+        await #expect(throws: LocalModelError.self) { try await service.loadLocalLLM(from: dir) }
+    }
+
+    @Test func rejectsFolderWithoutWeights() async throws {
+        let service = try await VecturaService()
+        let dir = try emptyTempDir()
+        try Data("{}".utf8).write(to: dir.appendingPathComponent("config.json"))
+        await #expect(throws: LocalModelError.self) { try await service.loadLocalLLM(from: dir) }
+    }
+
+    @MainActor
+    @Test func bookmarkRoundTrips() throws {
+        let dir = try emptyTempDir()
+        ModelBookmark.clear()
+        defer { ModelBookmark.clear() }
+        ModelBookmark.save(dir)
+        let resolved = try #require(ModelBookmark.resolve())
+        #expect(resolved.resolvingSymlinksInPath().path == dir.resolvingSymlinksInPath().path)
+        ModelBookmark.clear()
+        #expect(ModelBookmark.resolve() == nil)
+    }
+}

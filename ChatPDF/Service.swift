@@ -28,6 +28,19 @@ protocol IngestService {
 
 protocol LLMDownloadService {
     func downloadLLM(onProgress: @Sendable @escaping (Progress) -> Void) async throws
+    func loadLocalLLM(from directory: URL) async throws
+}
+
+enum LocalModelError: Error, LocalizedError {
+    case missingConfig
+    case missingWeights
+
+    var errorDescription: String? {
+        switch self {
+        case .missingConfig: "That folder has no config.json. Choose the model folder itself."
+        case .missingWeights: "That folder has no .safetensors weights."
+        }
+    }
 }
 
 enum IngestError: Error, LocalizedError, CustomStringConvertible {
@@ -68,6 +81,19 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     private let wholeDocumentTokenBudget = 3000
     
     var llm: ModelContainer?
+
+    struct GenerationStats: Sendable {
+        let intent: String
+        let promptTokens: Int
+        let generatedTokens: Int
+        let promptSeconds: Double
+        let generateSeconds: Double
+        let rawOutput: String
+    }
+    /// Stats of the most recent LLM call (used by benchmarks/tests).
+    private(set) var lastGeneration: GenerationStats?
+
+    func setLLM(_ container: ModelContainer) { self.llm = container }
     
     let url: URL = Bundle.main.resourceURL!
     
@@ -86,6 +112,19 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         self.router = IntentRouter(embedder: embedder)
     }
     
+    /// Loads an MLX model from a folder the user picked (config.json + *.safetensors).
+    func loadLocalLLM(from directory: URL) async throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: directory.appendingPathComponent("config.json").path) else {
+            throw LocalModelError.missingConfig
+        }
+        let files = (try? fm.contentsOfDirectory(atPath: directory.path)) ?? []
+        guard files.contains(where: { $0.hasSuffix(".safetensors") }) else {
+            throw LocalModelError.missingWeights
+        }
+        self.llm = try await loadModelContainer(from: directory, using: TokenizersLoader())
+    }
+
     func downloadLLM(onProgress: @Sendable @escaping (Progress) -> Void) async throws {
         self.llm = try await loadModelContainer(
             from: HubClient.default,
@@ -244,7 +283,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         print("Ingested \(docCount) chunks from \(url.lastPathComponent)")
     }
     
-    private func generate(with container: ModelContainer, prompt: String, maxTokens: Int) async throws -> String {
+    private func generate(with container: ModelContainer, prompt: String, maxTokens: Int) async throws -> (String, GenerateCompletionInfo?) {
         try await container.perform { modelContext in
             let input = try await modelContext.processor.prepare(
                 input: .init(prompt: prompt, additionalContext: ["enable_thinking": false])
@@ -270,14 +309,14 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
 
                 case .info(let info):
                     print(info.summary())
-                    return output
+                    return (output, info)
 
                 case .toolCall:
                     continue
                 }
             }
 
-            return output
+            return (output, nil)
         }
     }
     
@@ -394,6 +433,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
     }
 
     private func performReply(to message: String) async -> ChatAnswer {
+        lastGeneration = nil
         do {
             if let canned = cannedResponse(for: message) {
                 return ChatAnswer(finalAnswer: canned, thinking: nil, sources: [])
@@ -459,7 +499,15 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             """
 
             let maxTokens = intent == .general ? 700 : 400
-            let rawAnswer = try await generate(with: llm, prompt: prompt, maxTokens: maxTokens)
+            let (rawAnswer, info) = try await generate(with: llm, prompt: prompt, maxTokens: maxTokens)
+            lastGeneration = GenerationStats(
+                intent: intent.rawValue,
+                promptTokens: info?.promptTokenCount ?? 0,
+                generatedTokens: info?.generationTokenCount ?? 0,
+                promptSeconds: info?.promptTime ?? 0,
+                generateSeconds: info?.generateTime ?? 0,
+                rawOutput: rawAnswer
+            )
             let answer: (thought: String, cleanAnswer: String) = cleanAnswer(rawAnswer)
 
             if answer.cleanAnswer.isEmpty {

@@ -97,7 +97,7 @@ enum ModelBookmark {
 
 @MainActor
 @Observable
-final class AppViewModel<Ingestor: IngestService> {
+final class AppViewModel {
     var phase: AppPhase = .setupLLM
     var selectedFileURL: URL? = nil
     var error: CustomError? = nil
@@ -118,8 +118,8 @@ final class AppViewModel<Ingestor: IngestService> {
         self.llmDownloadState = .idle
     }
     
-    init(ingestionService: Ingestor = MockIngestionService()) {
-        self.ingestionService = ingestionService
+    init() {
+        self.ingestionService = MockIngestionService()
         self.llmDownloadService = nil
         self.llmDownloadState = .unavailable
     }

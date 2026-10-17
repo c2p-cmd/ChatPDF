@@ -144,6 +144,7 @@ final class AppViewModel<Ingestor: IngestService> {
     }
     
     func handleFile(url: URL) {
+        guard phase != .loading else { return }
         guard llmDownloadState == .ready || llmDownloadState == .unavailable else {
             self.phase = .setupLLM
             return

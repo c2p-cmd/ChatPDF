@@ -18,7 +18,7 @@ actor IntentRouter {
     private var centroids: [QueryIntent: [Float]] = [:]
 
     /// Minimum cosine margin a non-topical class needs over "topical".
-    private let margin: Float = 0.04
+    private let margin: Float = 0.08
 
     private static let examples: [QueryIntent: [String]] = [
         .general: [
@@ -53,6 +53,12 @@ actor IntentRouter {
         ]
     ]
 
+    /// Exemplars and queries must be embedded identically, and in the same Instruct/Query
+    /// format the retrieval path uses, or their similarities aren't comparable.
+    static func formatted(_ text: String) -> String {
+        "Instruct: Given a user question, retrieve the most relevant passages from the document that answer it.\nQuery: \(text)"
+    }
+
     init(embedder: any VecturaEmbedder) {
         self.embedder = embedder
     }
@@ -60,7 +66,7 @@ actor IntentRouter {
     func classify(_ message: String) async -> QueryIntent {
         do {
             try await buildCentroidsIfNeeded()
-            guard let q = try await embedder.embed(texts: [message]).first else { return .topical }
+            guard let q = try await embedder.embed(texts: [Self.formatted(message)]).first else { return .topical }
 
             let scores = centroids.mapValues { Self.cosine(q, $0) }
             guard let topical = scores[.topical] else { return .topical }
@@ -69,10 +75,10 @@ actor IntentRouter {
             let best = scores
                 .filter { $0.key != .topical }
                 .max { $0.value < $1.value }
-            if let best, best.value - topical >= margin {
-                return best.key
-            }
-            return .topical
+            let decision: QueryIntent
+            if let best, best.value - topical >= margin { decision = best.key } else { decision = .topical }
+            print("Intent scores \(scores.mapValues { String(format: "%.3f", $0) }) -> \(decision.rawValue)")
+            return decision
         } catch {
             print("Intent routing failed: \(error)")
             return .topical
@@ -83,7 +89,7 @@ actor IntentRouter {
         guard centroids.isEmpty else { return }
         var built: [QueryIntent: [Float]] = [:]
         for (intent, phrases) in Self.examples {
-            let vectors = try await embedder.embed(texts: phrases)
+            let vectors = try await embedder.embed(texts: phrases.map(Self.formatted))
             guard let first = vectors.first else { continue }
             var sum = [Float](repeating: 0, count: first.count)
             for v in vectors {

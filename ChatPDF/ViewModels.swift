@@ -44,6 +44,32 @@ struct ModelDownloadProgress: Equatable {
     }
 }
 
+/// Copies a user-picked PDF into the app's own temp folder while its security-scoped access is
+/// open. The sandbox only allows reading the original during that window, so ingest and preview
+/// always work from the copy.
+enum PDFStaging {
+    static let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChatPDF-docs")
+
+    static func stage(_ url: URL) throws -> URL {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
+        let dir = root.appendingPathComponent(UUID().uuidString)
+        let dest = dir.appendingPathComponent(url.lastPathComponent)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: dest)
+        } catch {
+            throw IngestError.unreadable(name: url.lastPathComponent, reason: error.localizedDescription)
+        }
+        return dest
+    }
+
+    static func cleanUp() {
+        try? FileManager.default.removeItem(at: root)
+    }
+}
+
 /// Persists the user's chosen model folder across launches (app-scoped security bookmark).
 enum ModelBookmark {
     private static let key = "localModelBookmark"
@@ -99,6 +125,7 @@ final class AppViewModel<Ingestor: IngestService> {
     }
 
     func newChat() {
+        PDFStaging.cleanUp()
         self.showError = false
         self.error = nil
         self.phase = .upload
@@ -227,13 +254,21 @@ final class AppViewModel<Ingestor: IngestService> {
             self.showError(IngestError.notAPDF)
             return
         }
-        selectedFileURL = url
+        let staged: URL
+        do {
+            staged = try PDFStaging.stage(url)
+        } catch {
+            self.phase = .upload
+            self.showError(error)
+            return
+        }
+        selectedFileURL = staged
         withAnimation(.easeInOut(duration: 0.25)) {
             phase = .loading
         }
         Task {
             do {
-                try await self.ingestionService.ingest(url: url)
+                try await self.ingestionService.ingest(url: staged)
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         self.phase = .main

@@ -15,6 +15,11 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
+                if let startupError = appVM.startupError {
+                    StartupErrorView(message: startupError) {
+                        Task { await initialize() }
+                    }
+                } else {
                 switch appVM.phase {
                 case .setupLLM:
                     ModelDownloadView(state: appVM.llmDownloadState) {
@@ -57,6 +62,7 @@ struct ContentView: View {
                     MainSplitView(fileURL: appVM.selectedFileURL, chatVM: $chatVM)
                         .transition(.opacity)
                 }
+                }
             }
             .alert(isPresented: $appVM.showError, error: appVM.error) { _ in
                 Button(role: .close) {
@@ -68,22 +74,27 @@ struct ContentView: View {
             .toolbarRole(.automatic)
             .toolbar(content: toolbarContent)
             .task(id: "Initialization", priority: .high) {
-                do {
-                    let vectura = try await VecturaService()
-                    self.vecturaService = vectura
-                    self.appVM = AppViewModel(ingestionService: vectura)
-                    self.chatVM.initializeChatService(vectura)
-                    self.appVM.restoreLocalModel()
-                } catch {
-                    print(error)
-                    self.appVM = AppViewModel()
-                    self.appVM.showError(error)
-                }
+                await initialize()
             }
         }
         .preferredColorScheme(.light)
     }
     
+    /// Starts the search engine. On failure the app stays on an explanatory screen (no mock fallback).
+    func initialize() async {
+        do {
+            let vectura = try await VecturaService()
+            self.vecturaService = vectura
+            self.appVM = AppViewModel(ingestionService: vectura)
+            self.chatVM.initializeChatService(vectura)
+            self.appVM.restoreLocalModel()
+        } catch {
+            print(error)
+            self.appVM = AppViewModel()
+            self.appVM.startupError = VecturaService.startupMessage(for: error)
+        }
+    }
+
     func toolbarContent() -> some View {
         Group {
             if appVM.phase == .main {
@@ -93,6 +104,30 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+struct StartupErrorView: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(.orange)
+            Text("ChatPDF couldn't start")
+                .font(.headline)
+            Text(.init(message))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 420)
+                .textSelection(.enabled)
+            Button("Try Again", systemImage: "arrow.clockwise", action: onRetry)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -416,6 +416,17 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         return lines
     }
     
+    /// Explains why the search engine (embedder + vector DB) could not start.
+    nonisolated static func startupMessage(for error: Error) -> String {
+        let detail = String(describing: error)
+        let looksMissing = ["config.json", "tokenizer", "Contents/Resources", "safetensors", "No such file"]
+            .contains { detail.localizedCaseInsensitiveContains($0) }
+        if looksMissing {
+            return "The embedding model is missing from the app, so search can't start.\n\nRun `python3 download_model.py` in the project folder, then rebuild the app. (The model is saved to ChatPDF/qwen3-embedding.)"
+        }
+        return "The document search engine couldn't start: \(error.localizedDescription). Restart the app, and if it keeps happening re-download the embedding model with `python3 download_model.py`."
+    }
+
     /// A readable explanation for a failed question, instead of a generic failure.
     nonisolated static func userMessage(for error: Error) -> String {
         if error is CancellationError {

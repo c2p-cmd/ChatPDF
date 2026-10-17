@@ -214,3 +214,35 @@ struct TestDocsEndToEndTests {
         #expect(!answer.finalAnswer.contains("33.8"))
     }
 }
+
+/// Scores the embedding router on the shared labelled set (also used by scripts/laya_intent_eval.sh).
+@Suite(.serialized)
+struct IntentSharedSetTests {
+    @Test func embeddingRouterOnSharedQuestionSet() async throws {
+        let root = Bundle(for: BundleToken.self).resourceURL!
+        let tsv = try #require(
+            FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }.first { $0.lastPathComponent == "intent_questions.tsv" })
+        let url = try #require(Bundle.main.resourceURL)
+        let embedder = try await MLXEmbedder(configuration: ModelConfiguration(directory: url))
+        let router = IntentRouter(embedder: embedder)
+
+        var lines: [String] = []
+        var correct = 0, total = 0, badTopical = 0, topical = 0
+        var micros: [Double] = []
+        for line in try String(contentsOf: tsv, encoding: .utf8).split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            let t0 = Date()
+            let got = await router.classify(parts[1])
+            micros.append(Date().timeIntervalSince(t0) * 1000)
+            total += 1
+            if got.rawValue == parts[0] { correct += 1 }
+            if parts[0] == "topical" { topical += 1; if got != .topical { badTopical += 1 } }
+            lines.append("ROUTEREVAL\t\(parts[0])\t\(got.rawValue)\t\(parts[1])")
+        }
+        lines.forEach { print($0) }
+        micros.sort()
+        print("ROUTERSUMMARY correct=\(correct) total=\(total) badTopical=\(badTopical)/\(topical) medianMs=\(micros[micros.count / 2]) ")
+    }
+}

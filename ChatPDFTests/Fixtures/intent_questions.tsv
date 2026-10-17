@@ -1,0 +1,44 @@
+general	What is this document about?
+general	Summarize this paper for me
+general	Give me a short overview of the report
+general	What are the key takeaways?
+general	can you summarize this document
+general	what's the main idea of this pdf?
+general	TL;DR please
+general	Explain this document in simple terms
+general	What topics does this file cover?
+general	Give me the gist
+general	Walk me through the whole paper
+general	What is the conclusion of this work overall?
+topical	What throughput did the Raspberry Pi achieve?
+topical	Why were USB disconnections observed?
+topical	Which tool provides the SIP registrar and proxy?
+topical	What k was chosen for K-Means clustering?
+topical	What is the null hypothesis?
+topical	How do I create a KNN classifier?
+topical	What was the sample size in the experiment?
+topical	who signed the contract and on what date
+topical	what does section 3 say about liability
+topical	which dataset was used for evaluation
+topical	how is the loss function defined
+topical	How many GTP-U flows were clustered?
+topical	What MOS did RTPengine report?
+topical	Which UE was used in the testbed?
+topical	What does the author conclude about the Raspberry Pi's power draw?
+topical	Who is the professor of the course?
+topical	Summarize the results section
+topical	What does Table 2 show?
+topical	Explain the E-model calculation used for MOS
+topical	Can you explain what silhouette score means in this report?
+unrelated	What's the weather like today?
+unrelated	Tell me a joke
+unrelated	Who won the world cup in 2018?
+unrelated	Write a poem about autumn
+unrelated	What is the capital of France?
+unrelated	How do I cook pasta?
+unrelated	Write a Python script to sort a list
+unrelated	What's your favorite color?
+unrelated	Recommend a good movie for tonight
+unrelated	Translate good morning into Spanish
+unrelated	What is 17 times 23?
+unrelated	Who are you?

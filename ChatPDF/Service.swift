@@ -416,6 +416,22 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
         return lines
     }
     
+    /// A readable explanation for a failed question, instead of a generic failure.
+    nonisolated static func userMessage(for error: Error) -> String {
+        if error is CancellationError {
+            return "The question was cancelled."
+        }
+        if let urlError = error as? URLError {
+            return "A network request failed (\(urlError.localizedDescription)). Check your connection and try again."
+        }
+        let detail = error.localizedDescription
+        let lowered = detail.lowercased()
+        if lowered.contains("memory") {
+            return "The model ran out of memory while answering. Close other apps or choose a smaller model, then try again."
+        }
+        return "Sorry, I couldn't answer that: \(detail). Try asking again, or re-upload the document if this keeps happening."
+    }
+
     /// Whole document if it fits the budget, otherwise the opening of each page spread across the document.
     private func wholeDocumentContext() -> String {
         let full = pageTexts.joined(separator: "\n\n")
@@ -519,7 +535,7 @@ actor VecturaService: IngestService, ChatService, LLMDownloadService {
             return ChatAnswer(finalAnswer: answer.cleanAnswer, thinking: answer.thought, sources: sources)
         } catch {
             print(error)
-            return ChatAnswer(finalAnswer: "Problem with handling the query.", thinking: nil, sources: [])
+            return ChatAnswer(finalAnswer: Self.userMessage(for: error), thinking: nil, sources: [])
         }
     }
 }

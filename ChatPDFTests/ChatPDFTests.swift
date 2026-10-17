@@ -112,3 +112,13 @@ struct LocalModelFolderTests {
         #expect(ModelBookmark.resolve() == nil)
     }
 }
+
+struct ErrorMessageTests {
+    @Test func messagesAreSpecificAndActionable() {
+        #expect(VecturaService.userMessage(for: URLError(.notConnectedToInternet)).contains("network"))
+        #expect(VecturaService.userMessage(for: CancellationError()).contains("cancelled"))
+        let generic = VecturaService.userMessage(for: IngestError.emptyPDF)
+        #expect(generic.contains("PDF is empty"))
+        #expect(!generic.contains("Problem with handling"))
+    }
+}

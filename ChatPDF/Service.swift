@@ -55,6 +55,7 @@ enum IngestError: Error, LocalizedError, CustomStringConvertible {
     case emptyPDF
     case extractionFailed
     case notAPDF
+    case unreadable(name: String, reason: String)
     
     var errorDescription: String? {
         self.description
@@ -70,6 +71,9 @@ enum IngestError: Error, LocalizedError, CustomStringConvertible {
             "Failed to extract text from PDF"
         case .notAPDF:
             "Not a PDF"
+        case .unreadable(let name, let reason):
+            "Couldn't open \"\(name)\": \(reason)"
+
         }
     }
 }

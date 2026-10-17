@@ -163,3 +163,28 @@ struct StartupMessageTests {
         #expect(msg.contains("couldn't start"))
     }
 }
+
+struct PDFStagingTests {
+    @Test func stagesACopyThatCanBeOpened() throws {
+        let src = FileManager.default.temporaryDirectory.appendingPathComponent("src-\(UUID().uuidString).pdf")
+        try Data("%PDF-1.4".utf8).write(to: src)
+        let staged = try PDFStaging.stage(src)
+        #expect(staged != src)
+        #expect(staged.lastPathComponent == src.lastPathComponent)
+        #expect(FileManager.default.isReadableFile(atPath: staged.path))
+        PDFStaging.cleanUp()
+        #expect(!FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    @Test func unreadableFileGivesNamedError() {
+        let missing = URL(fileURLWithPath: "/nonexistent/dir/report.pdf")
+        do {
+            _ = try PDFStaging.stage(missing)
+            Issue.record("expected an error")
+        } catch let error as IngestError {
+            #expect(error.description.contains("report.pdf"))
+        } catch {
+            Issue.record("unexpected error \(error)")
+        }
+    }
+}

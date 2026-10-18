@@ -3,23 +3,29 @@ import PDFKit
 
 struct PDFPreview: View {
     let url: URL?
+    var navigator: PDFNavigator
 
     var body: some View {
         Group {
             if let url, let pdfDoc = PDFDocument(url: url) {
-                PDFKitView(document: pdfDoc)
+                PDFKitView(document: pdfDoc, request: navigator.request)
             } else {
-                PlaceholderView(fileName: "Untitled.pdf")
+                ContentUnavailableView("No Document", systemImage: "doc")
             }
         }
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
-        .padding()
-        .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
 }
 
 struct PDFKitView: NSViewRepresentable {
     let document: PDFDocument
+    let request: PDFNavigator.Request?
+
+    final class Coordinator {
+        var lastRequestID: UUID?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
@@ -31,32 +37,26 @@ struct PDFKitView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
-        nsView.document = document
-    }
-}
-
-private struct PlaceholderView: View {
-    let fileName: String
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(fileName)
-                .font(.headline)
-                .foregroundStyle(Color.primary)
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.gray.opacity(0.2))
-                .frame(height: 12)
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.gray.opacity(0.2))
-                .frame(height: 12)
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.gray.opacity(0.2))
-                .frame(height: 200)
+        if nsView.document !== document {
+            nsView.document = document
         }
-        .padding()
+        guard let request, request.id != context.coordinator.lastRequestID else { return }
+        context.coordinator.lastRequestID = request.id
+        guard let page = document.page(at: request.page - 1) else { return }
+
+        nsView.go(to: page)
+        // Flash the cited page so the eye lands on it.
+        let selection = page.selection(for: page.bounds(for: .cropBox))
+        nsView.highlightedSelections = selection.map { [$0] }
+        selection?.color = NSColor.controlAccentColor.withAlphaComponent(0.25)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.2))
+            nsView.highlightedSelections = nil
+        }
     }
 }
 
 #Preview {
-    PDFPreview(url: nil)
+    PDFPreview(url: nil, navigator: PDFNavigator())
         .frame(width: 500, height: 400)
 }

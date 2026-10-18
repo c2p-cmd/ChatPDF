@@ -37,19 +37,22 @@ struct ModelDownloadView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "brain")
-                .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(Color.primary)
+                .font(.largeTitle)
+                .imageScale(.large)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             Text("Download chat model")
-                .foregroundStyle(Color.primary)
                 .font(.headline)
 
-            Text("The model is required before chatting with your PDF.")
-                .foregroundStyle(Color.primary.opacity(0.7))
+            Text("Answers come from a language model that runs on this Mac. It downloads once (a few gigabytes); after that your PDFs and questions never leave this Mac.")
                 .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
 
             if isLoadingLocal {
-                ProgressView("Loading model...")
+                ProgressView("Loading model…")
             }
 
             if let progress {
@@ -61,32 +64,34 @@ struct ModelDownloadView: View {
                     VStack(spacing: 2) {
                         Text(progress.fractionCompleted, format: .percent.precision(.fractionLength(0)))
                             .font(.caption)
-                            .foregroundStyle(Color.primary.opacity(0.7))
+                            .foregroundStyle(.secondary)
 
                         if let byteCountText {
                             Text(byteCountText)
-                                .font(.caption2)
-                                .foregroundStyle(Color.primary.opacity(0.6))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
 
             HStack(spacing: 10) {
-                Button(isDownloading ? "Downloading..." : "Download Model", systemImage: "arrow.down.circle", action: onDownload)
+                Button(isDownloading ? "Downloading…" : "Download Model", systemImage: "arrow.down.circle", action: onDownload)
                     .buttonStyle(.borderedProminent)
                     .disabled(isDownloading || isLoadingLocal)
 
-                Button(isLoadingLocal ? "Loading..." : "Use Local Model Folder...", systemImage: "folder") {
+                Button(isLoadingLocal ? "Loading…" : "Use Local Model Folder…", systemImage: "folder") {
                     showFolderPicker = true
                 }
                 .buttonStyle(.bordered)
                 .disabled(isDownloading || isLoadingLocal)
 
-                if isDownloading {
-                    Button("Cancel", systemImage: "xmark.circle", role: .cancel, action: onCancel)
-                        .buttonStyle(.bordered)
-                }
+                // Always laid out so the row doesn't shift when a download starts.
+                Button("Cancel", systemImage: "xmark.circle", role: .cancel, action: onCancel)
+                    .buttonStyle(.bordered)
+                    .opacity(isDownloading ? 1 : 0)
+                    .disabled(!isDownloading)
+                    .accessibilityHidden(!isDownloading)
             }
         }
         .padding(24)

@@ -3,48 +3,90 @@ import SwiftUI
 
 struct ChatView: View {
     @Binding var viewModel: ChatViewModel
-    
+    var navigator: PDFNavigator
+
     var body: some View {
-        VStack(spacing: 10) {
-            Messages(messages: viewModel.messages)
-                .onAppear {
-//                    viewModel.messages = [ChatMessage(
-//                        role: .assistant,
-//                        text: "Hello there! How can I help you today?"
-//                    )]
+        Group {
+            if viewModel.messages.isEmpty {
+                EmptyChat { question in
+                    viewModel.input = question
+                    viewModel.send()
                 }
-            
-            Composer(text: $viewModel.input, onSend: viewModel.send)
-                .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(.white.opacity(0.55))
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .stroke(.white.opacity(0.8), lineWidth: 1)
-                        }
-                        .shadow(color: .black.opacity(0.06), radius: 16, y: 6)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 12)
+            } else {
+                Messages(
+                    messages: viewModel.messages,
+                    isRunning: viewModel.isRunning,
+                    navigator: navigator,
+                    onRetry: viewModel.retryLast
                 )
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Composer(
+                text: $viewModel.input,
+                isRunning: viewModel.isRunning,
+                onSend: viewModel.send,
+                onStop: viewModel.stop
+            )
+        }
+    }
+}
+
+private struct EmptyChat: View {
+    var onAsk: (String) -> Void
+
+    private let prompts = [
+        "Summarize this document",
+        "What are the key points?",
+        "What conclusions does it reach?"
+    ]
+
+    var body: some View {
+        VStack(spacing: 16) {
+            VStack(spacing: 6) {
+                Text("Ask about this PDF")
+                    .font(.headline)
+                Text("Answers are written by a model on this Mac and can be wrong. Check the cited pages.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+            }
+            VStack(spacing: 8) {
+                ForEach(prompts, id: \.self) { prompt in
+                    Button(prompt) { onAsk(prompt) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
+            }
+        }
+        .padding(24)
     }
 }
 
 private struct Messages: View {
     var messages: [ChatMessage]
-    
+    var isRunning: Bool
+    var navigator: PDFNavigator
+    var onRetry: () -> Void
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .center, spacing: 12) {
+                LazyVStack(spacing: 14) {
                     ForEach(messages) { message in
-                        MessageBubble(message: message)
-                            .id(message.id)
+                        MessageBubble(
+                            message: message,
+                            canRetry: !isRunning && message.id == messages.last?.id && message.role == .assistant,
+                            navigator: navigator,
+                            onRetry: onRetry
+                        )
+                        .id(message.id)
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
             }
             .scrollIndicators(.automatic)
             .onAppear {
@@ -70,272 +112,228 @@ private struct Messages: View {
 
 private struct Composer: View {
     var text: Binding<String>
+    var isRunning: Bool
     var onSend: () -> Void
-    
+    var onStop: () -> Void
+
+    private var isEmpty: Bool {
+        text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        HStack(alignment: .bottom, spacing: 8) {
             MacTextViewWithEnterToSend(
                 text: text,
+                placeholder: "Ask about this PDF",
                 onCommit: onSend
             )
-            .frame(minHeight: 20, maxHeight: 110)
-            .padding(.horizontal, 12)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            
-            Button {
-                onSend()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(8)
-                    .shadow(color: Color.accentColor.opacity(0.35), radius: 10, y: 4)
-                    .background(LinearGradient(
-                        colors: [
-                            Color.accentColor.opacity(0.95),
-                            Color.accentColor.opacity(0.72)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ))
-                    .clipShape(Circle())
+            .frame(minHeight: 28, maxHeight: 110)
+
+            if isRunning {
+                Button(action: onStop) {
+                    Label("Stop", systemImage: "stop.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Stop answering")
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+            } else {
+                Button(action: onSend) {
+                    Label("Send", systemImage: "arrow.up")
+                        .labelStyle(.iconOnly)
+                }
+                .help("Send (Return)")
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .disabled(isEmpty)
             }
-            .padding([.trailing, .bottom], 5)
-            .contentShape(Circle())
-            .buttonStyle(.borderless)
-            .disabled(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.6 : 1)
         }
-        .padding(12)
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
     }
 }
 
 private struct MessageBubble: View {
     let message: ChatMessage
-    
-    var alignment: Alignment {
-        switch message.role {
-        case .user: return .trailing
-        default:  return .leading
-        }
-    }
-    
-    var horizontalAlignment: HorizontalAlignment {
-        switch message.role {
-        case .user: return .trailing
-        default: return .leading
-        }
-    }
-    
+    var canRetry: Bool
+    var navigator: PDFNavigator
+    var onRetry: () -> Void
+
+    private var isUser: Bool { message.role == .user }
+
     var body: some View {
-        VStack(alignment: horizontalAlignment, spacing: 1) {
-            HStack(alignment: .top) {
-                if message.role == .user { Spacer(minLength: 48) }
-                
-                Group {
-                    if message.role == .typing {
-                        ProgressView()
-                            .progressViewStyle(LinearProgressViewStyle())
-                    } else {
-                        VStack(alignment: .leading, spacing: 1) {
-                            if !message.modelThoughtIsEmpty {
-                                if let modelThought = message.modelThought {
-                                    DisclosureGroup("Show Model Thought") {
-                                        Text(modelThought)
-                                            .padding(.bottom, 5)
-                                    }
-                                    .foregroundStyle(.white)
-                                    .padding([.trailing])
-                                    .padding(.leading, 5)
-                                    .background(Color.blue.gradient)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                }
-                            }
-                            Markdown(message.text)
-                                .markdownTheme(.docC)
+        HStack(alignment: .top, spacing: 0) {
+            if isUser { Spacer(minLength: 48) }
+
+            VStack(alignment: .leading, spacing: 4) {
+                bubble
+                if message.role != .typing {
+                    actions
+                }
+            }
+            .frame(maxWidth: 640, alignment: isUser ? .trailing : .leading)
+
+            if !isUser { Spacer(minLength: 48) }
+        }
+    }
+
+    @ViewBuilder
+    private var bubble: some View {
+        Group {
+            if message.role == .typing {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Answering")
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !message.modelThoughtIsEmpty, let modelThought = message.modelThought {
+                        DisclosureGroup("Show Model Thought") {
+                            Text(modelThought)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
-                            if !message.sources.isEmpty {
-                                DisclosureGroup("Sources") {
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        ForEach(message.sources.indices, id: \.self) { i in
-                                            Text(message.sources[i])
-                                                .foregroundStyle(.primary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
-                                }
-                                .foregroundStyle(.primary.secondary)
-                            }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 4)
                         }
+                        .foregroundStyle(.secondary)
+                    }
+                    Markdown(message.text)
+                        .markdownTheme(.docC)
+                        .textSelection(.enabled)
+                    if !message.citedPages.isEmpty {
+                        sources
                     }
                 }
-                .foregroundStyle(message.role == .user ? .white : Color.primary.opacity(0.92))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(bubbleBackground)
-                .frame(maxWidth: .infinity, alignment: alignment)
-                
-                if message.role != .user { Spacer(minLength: 48) }
             }
-            if message.role != .typing {
-                Button("Copy", systemImage: "document.on.document") {
-                    let pasteboard = NSPasteboard.general
-                    print(pasteboard.clearContents())
-                    pasteboard.setString(message.text, forType: .string)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .font(.footnote)
-                .padding(.horizontal)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(isUser ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(.quaternary))
+        )
+    }
+
+    private var sources: some View {
+        HStack(spacing: 6) {
+            Text("Sources")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(message.citedPages, id: \.self) { page in
+                Button("p. \(page)") { navigator.show(page: page) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .help("Show page \(page)")
+                    .accessibilityLabel("Go to page \(page)")
             }
         }
     }
-    
-    @ViewBuilder
-    var bubbleBackground: some View {
-        if message.role == .user {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.78))
-                .stroke(Color.black.opacity(0.05), lineWidth: 1)
-        } else {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.78))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
-                }
+
+    private var actions: some View {
+        HStack(spacing: 2) {
+            Button("Copy", systemImage: "document.on.document") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(message.text, forType: .string)
+            }
+            .help("Copy")
+            if canRetry {
+                Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
+                    .help("Ask again")
+            }
         }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .controlSize(.regular)
+        .buttonStyle(.borderless)
+        .frame(minHeight: 28)
+        .padding(.horizontal, 6)
     }
 }
 
-private struct ChatBackdrop: View {
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.08, green: 0.10, blue: 0.14),
-                    Color(red: 0.12, green: 0.14, blue: 0.20),
-                    Color(red: 0.07, green: 0.09, blue: 0.13)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            
-            Circle()
-                .fill(Color.accentColor.opacity(0.18))
-                .frame(width: 420, height: 420)
-                .blur(radius: 80)
-                .offset(x: -220, y: -160)
-            
-            Circle()
-                .fill(Color.white.opacity(0.08))
-                .frame(width: 300, height: 300)
-                .blur(radius: 90)
-                .offset(x: 260, y: 180)
-        }
-        .ignoresSafeArea()
-    }
-}
+/// Plain-text field: Return sends, Shift-Return inserts a newline.
+private final class PlaceholderTextView: NSTextView {
+    var placeholder = ""
 
-private extension View {
-    @ViewBuilder
-    func chatPanelGlass(radius: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        
-        if #available(macOS 26.0, *) {
-            self
-                .clipShape(shape)
-                .glassEffect(.clear, in: shape)
-                .overlay {
-                    shape
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.28),
-                                    .white.opacity(0.08)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                }
-                .shadow(color: .black.opacity(0.22), radius: 24, y: 10)
-        } else {
-            self
-                .background {
-                    ZStack {
-                        shape.fill(.white.opacity(0.08))
-                        shape.fill(.ultraThinMaterial)
-                    }
-                }
-                .overlay {
-                    shape
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [
-                                    .white.opacity(0.30),
-                                    .white.opacity(0.07)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                }
-                .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
-                .clipShape(shape)
-        }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, let container = textContainer else { return }
+        let origin = NSPoint(
+            x: textContainerInset.width + container.lineFragmentPadding,
+            y: textContainerInset.height
+        )
+        placeholder.draw(at: origin, withAttributes: [
+            .font: font ?? NSFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: NSColor.placeholderTextColor
+        ])
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
     }
 }
 
 private struct MacTextViewWithEnterToSend: NSViewRepresentable {
     @Binding var text: String
+    var placeholder: String
     var onCommit: () -> Void
-    
+
     func makeNSView(context: Context) -> NSScrollView {
-        let textView = NSTextView()
+        let textView = PlaceholderTextView()
+        textView.placeholder = placeholder
         textView.isEditable = true
         textView.isRichText = false
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.font = NSFont.preferredFont(forTextStyle: .body)
+        textView.textColor = .labelColor
         textView.backgroundColor = .clear
         textView.delegate = context.coordinator
         textView.textContainerInset = NSSize(width: 4, height: 6)
         textView.string = text
-        
+        textView.setAccessibilityLabel("Message")
+
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.documentView = textView
         return scrollView
     }
-    
+
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.onCommit = onCommit
         if let textView = nsView.documentView as? NSTextView, textView.string != text {
             textView.string = text
+            textView.needsDisplay = true
         }
     }
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text, onCommit: onCommit)
     }
-    
+
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
         var onCommit: () -> Void
-        
+
         init(text: Binding<String>, onCommit: @escaping () -> Void) {
             _text = text
             self.onCommit = onCommit
         }
-        
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
         }
-        
+
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             // Intercept Enter key to send, allow Shift-Enter to insert newline
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
@@ -355,21 +353,20 @@ private struct MacTextViewWithEnterToSend: NSViewRepresentable {
     let messages = [
         ChatMessage(role: .user, text: "hello"),
         ChatMessage(role: .assistant, text: "Hello, How can I help you today?"),
-        ChatMessage(role: .user, text: "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet."),
+        ChatMessage(role: .user, text: "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat."),
         ChatMessage(
             role: .assistant,
             answer: ChatAnswer(
                 finalAnswer: "Yes, that is the case",
-                thinking: "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet. Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore et dolore magna aliquyam erat, sed diam voluptua. At vero eos et accusam et justo duo dolores et ea rebum. Stet clita kasd gubergren, no sea takimata sanctus est Lorem ipsum dolor sit amet.",
+                thinking: "Lorem ipsum dolor sit amet, consetetur sadipscing elitr, sed diam nonumy eirmod tempor invidunt ut labore.",
                 sources: [
-                    "P[1]",
-                    "P[2]"
+                    "[1] page 1, chunk 0, score 0.812",
+                    "[2] page 2, chunk 3, score 0.700"
                 ]
             )
         ),
         ChatMessage(role: .typing, text: "")
     ]
-    MainSplitView(fileURL: nil, chatVM: .constant(ChatViewModel(messages: messages)))
-        .frame(width: 700, height: 400)
-        .preferredColorScheme(.light)
+    MainSplitView(fileURL: nil, chatVM: .constant(ChatViewModel(messages: messages)), navigator: PDFNavigator())
+        .frame(width: 800, height: 450)
 }

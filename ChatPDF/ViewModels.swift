@@ -324,6 +324,7 @@ final class ChatViewModel {
     }
     
     func reset() {
+        generation += 1
         currentTask?.cancel()
         currentTask = nil
         messages.removeAll()
@@ -333,23 +334,53 @@ final class ChatViewModel {
         currentTask != nil
     }
 
+    /// Bumped whenever the running reply is abandoned (reset or stop), so late partials and answers
+    /// from the old task are ignored.
+    private var generation = 0
+
+    /// Stops the reply in progress. Streamed text stays; a bare typing indicator is removed.
+    func stop() {
+        guard isRunning else { return }
+        generation += 1
+        currentTask?.cancel()
+        currentTask = nil
+        if let i = messages.lastIndex(where: { $0.role == .typing }) {
+            messages.remove(at: i)
+        }
+    }
+
+    /// Asks the last question again, replacing the last reply.
+    func retryLast() {
+        guard !isRunning, let i = messages.lastIndex(where: { $0.role == .user }) else { return }
+        let question = messages[i].text
+        messages.removeSubrange(i...)
+        ask(question)
+    }
+
     func send() {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isRunning else { return }
-
-        messages.append(ChatMessage(role: .user, text: trimmed))
         input = ""
+        ask(trimmed)
+    }
+
+    private func ask(_ question: String) {
+        guard !isRunning else { return }
+        messages.append(ChatMessage(role: .user, text: question))
         let typing = ChatMessage(role: .typing, text: "")
         messages.append(typing)
 
         let replyID = typing.id
+        generation += 1
+        let myGeneration = generation
         currentTask = Task {
             // Streamed text replaces the typing indicator in place (same id), then the final
             // answer (with sources) replaces the streamed text.
             let onPartial: @Sendable (String) -> Void = { partial in
                 Task { @MainActor in
-                    // Ignore partials that arrive after the final answer (it carries `answer`).
-                    guard !Task.isCancelled,
+                    // Ignore partials from an abandoned reply, and any that arrive after the
+                    // final answer (it carries `answer`).
+                    guard self.generation == myGeneration,
                           let i = self.messages.firstIndex(where: { $0.id == replyID }),
                           self.messages[i].answer == nil else { return }
                     self.messages[i] = ChatMessage(id: replyID, role: .assistant, text: partial)
@@ -357,12 +388,12 @@ final class ChatViewModel {
             }
             let reply: ChatAnswer
             if let service = chatService {
-                reply = await service.reply(to: trimmed, onPartial: onPartial)
+                reply = await service.reply(to: question, onPartial: onPartial)
             } else {
-                reply = await mockChatService.reply(to: trimmed, onPartial: onPartial)
+                reply = await mockChatService.reply(to: question, onPartial: onPartial)
             }
-            // A cancelled task belongs to a chat that was reset; drop its answer.
-            guard !Task.isCancelled else { return }
+            // An abandoned reply belongs to a chat that was reset or stopped; drop its answer.
+            guard generation == myGeneration else { return }
             if let i = messages.firstIndex(where: { $0.id == replyID }) {
                 messages[i] = ChatMessage(id: replyID, role: .assistant, answer: reply)
             } else {

@@ -10,68 +10,66 @@ struct UploadView: View {
     @State private var errorText: String? = nil
 
     var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 8) {
-                Image(systemName: "doc.fill")
-                    .font(.system(size: 40, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                Text("Drag & drop a PDF here")
-                    .foregroundStyle(Color.primary)
-                    .font(.headline)
-                Text("or")
-                    .foregroundStyle(Color.primary.opacity(0.7))
-                    .font(.subheadline)
-                Button {
-                    errorText = nil
-                    showImporter = true 
-                } label: {
-                    Text("Select File")
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .foregroundStyle(.white)
-                }
-                .glassEffect(
-                    .regular.tint(Color.accent.opacity(0.12)),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-                )
-                .buttonStyle(.borderedProminent)
-            }
-            .glassEffect(.clear, in: Rectangle())
-            .onDrop(of: [UTType.pdf, UTType.fileURL], isTargeted: $isTargeted) { providers in
+        VStack(spacing: 14) {
+            Image(systemName: isTargeted ? "arrow.down.doc.fill" : "doc.badge.plus")
+                .font(.largeTitle)
+                .imageScale(.large)
+                .foregroundStyle(isTargeted ? Color.accentColor : Color.secondary)
+                .accessibilityHidden(true)
+            Text(isTargeted ? "Release to open" : "Drop a PDF here")
+                .font(.headline)
+            Text("or")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("Choose PDF…") {
                 errorText = nil
-                return handleDrop(providers)
+                showImporter = true
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Label("Your document stays on this Mac.", systemImage: "lock")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
 
             if let errorText {
-                Text(errorText)
-                    .font(.subheadline)
+                Label(errorText, systemImage: "exclamationmark.circle")
+                    .font(.callout)
                     .foregroundStyle(.red)
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .preferredColorScheme(.light)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isTargeted ? Color.accentColor.opacity(0.08) : Color.clear)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(
+                            isTargeted ? Color.accentColor : Color.secondary.opacity(0.4),
+                            style: StrokeStyle(lineWidth: isTargeted ? 3 : 1.5, dash: [7, 5])
+                        )
+                }
+                .padding(24)
+        }
+        .animation(.easeOut(duration: 0.15), value: isTargeted)
+        .contentShape(Rectangle())
+        .onDrop(of: [UTType.fileURL], isTargeted: $isTargeted) { providers in
+            errorText = nil
+            return handleDrop(providers)
+        }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.pdf]) { result in
             switch result {
             case .success(let url):
                 if url.pathExtension.lowercased() == "pdf" {
                     onFileChosen(url)
                 } else {
-                    errorText = "Please select a .pdf file."
+                    errorText = "Please choose a .pdf file."
                 }
             case .failure(let err):
-                print(err)
                 onError(err)
-                break
             }
-        }
-    }
-    
-    private var borderColor: Color {
-        if isTargeted {
-            return .accent
-        } else {
-            return .clear
         }
     }
 
@@ -90,8 +88,7 @@ struct UploadView: View {
             }()
             Task { @MainActor in
                 if let err {
-                    print(err)
-                    errorText = "Failed to load file."
+                    errorText = "Couldn’t read that file."
                     onError(err)
                 } else if let url, url.pathExtension.lowercased() == "pdf" {
                     errorText = nil

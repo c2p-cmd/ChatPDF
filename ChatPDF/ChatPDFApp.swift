@@ -13,6 +13,7 @@ struct ChatPDFApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowIdealSize(.maximum)
+        .defaultSize(width: 1100, height: 720)
+        .commands { ChatPDFCommands() }
     }
 }
